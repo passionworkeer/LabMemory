@@ -1,0 +1,107 @@
+{
+  "candidates": [
+    {
+      "candidate_id": "cand_demo_001",
+      "type": "decision",
+      "title": "采用方案A调整实验参数",
+      "description": "经过讨论，决定采用方案A：将反应温度从20度调整到25度，反应时间从30分钟延长到45分钟，预计转化率可提升15%。",
+      "experiment_ref": "EXP-2026-001",
+      "parameters": [
+        {"name": "温度", "value": "25", "unit": "度"},
+        {"name": "时间", "value": "45", "unit": "分钟"}
+      ],
+      "confidence": 0.92,
+      "evidence": [
+        {
+          "speaker": "张三",
+          "start_offset_sec": 600,
+          "end_offset_sec": 680,
+          "text": "我建议采用方案A，温度调到25度，时间延长到45分钟，这样转化率应该能提升15%左右。",
+          "source_url": ""
+        },
+        {
+          "speaker": "李四",
+          "start_offset_sec": 720,
+          "end_offset_sec": 750,
+          "text": "同意方案A，这个调整幅度比较稳妥，风险可控。",
+          "source_url": ""
+        }
+      ],
+      "status": "candidate",
+      "needs_review": true,
+      "assignee": "李四",
+      "due_date": null
+    },
+    {
+      "candidate_id": "cand_demo_002",
+      "type": "parameter_change",
+      "title": "参数调整：反应温度",
+      "description": "反应温度从20度调整为25度",
+      "experiment_ref": "EXP-2026-001",
+      "parameters": [
+        {"name": "温度", "value": "25", "unit": "度", "old_value": "20"}
+      ],
+      "confidence": 0.88,
+      "evidence": [
+        {
+          "speaker": "张三",
+          "start_offset_sec": 600,
+          "end_offset_sec": 680,
+          "text": "温度调到25度",
+          "source_url": ""
+        }
+      ],
+      "status": "candidate",
+      "needs_review": true
+    },
+    {
+      "candidate_id": "cand_demo_003",
+      "type": "risk",
+      "title": "温度升高可能导致副反应增加",
+      "description": "王五提出顾虑：温度升高5度可能会导致副反应增加，需要密切监控产物纯度。",
+      "experiment_ref": "EXP-2026-001",
+      "confidence": 0.75,
+      "evidence": [
+        {
+          "speaker": "王五",
+          "start_offset_sec": 800,
+          "end_offset_sec": 850,
+          "text": "我有点担心温度升高后副反应会不会增加，这个需要验证一下。",
+          "source_url": ""
+        }
+      ],
+      "status": "candidate",
+      "needs_review": true
+    }
+  ],
+  "risks": [
+    {
+      "title": "温度升高可能导致副反应增加",
+      "description": "温度升高5度可能会导致副反应增加，需要密切监控产物纯度",
+      "raised_by": "王五",
+      "severity": "medium"
+    }
+  ],
+  "action_items": [
+    {
+      "title": "安排小试验证方案A",
+      "description": "李四负责安排小试，验证温度和时间调整后的效果",
+      "assignee": "李四",
+      "source": "meeting_transcript"
+    },
+    {
+      "title": "负责检测监控",
+      "description": "王五负责检测监控，重点关注产物纯度变化",
+      "assignee": "王五",
+      "source": "meeting_transcript"
+    },
+    {
+      "title": "跟进成本核算",
+      "description": "赵六跟进成本核算，评估调整后的成本变化",
+      "assignee": "赵六",
+      "source": "meeting_transcript"
+    }
+  ],
+  "open_questions": [],
+  "raw_output": "Mock Aily output - demo data"
+}

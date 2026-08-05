@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FeishuActionRequest",
+  "description": "平台请求飞书执行动作的请求体",
+  "type": "object",
+  "required": ["action_type", "payload"],
+  "properties": {
+    "action_type": {
+      "type": "string",
+      "description": "动作类型",
+      "enum": ["send_card", "create_task", "update_base", "publish_doc", "notify"]
+    },
+    "candidate_id": {
+      "type": "string",
+      "description": "关联的候选 ID"
+    },
+    "payload": {
+      "type": "object",
+      "description": "动作参数"
+    },
+    "request_id": {
+      "type": "string",
+      "description": "请求 ID（幂等）"
+    }
+  }
+}

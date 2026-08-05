@@ -1,0 +1,29 @@
+{
+  "object_id": "meeting:meeting_demo_001",
+  "state": "minutes_ready",
+  "updated_at": "2026-08-05T16:09:15.486029+08:00",
+  "meeting_id": "meeting_demo_001",
+  "event": {
+    "type": "meeting.ended_v1",
+    "event_id": "evt_meeting_001",
+    "meeting_id": "meeting_demo_001",
+    "title": "实验方案评审会",
+    "start_time": "2026-08-05T10:00:00+08:00",
+    "end_time": "2026-08-05T10:30:00+08:00",
+    "organizer": "张三"
+  },
+  "created_at": "2026-08-05T16:09:14.974214+08:00",
+  "history": [
+    {
+      "from": null,
+      "to": "waiting_minutes",
+      "timestamp": "2026-08-05T16:09:14.974214+08:00"
+    },
+    {
+      "from": "waiting_minutes",
+      "to": "minutes_ready",
+      "timestamp": "2026-08-05T16:09:15.486029+08:00"
+    }
+  ],
+  "minute_token": "minutes_demo_001"
+}

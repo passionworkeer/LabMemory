@@ -1,0 +1,8 @@
+{
+  "key": "event:evt_minutes_001",
+  "result": {
+    "result": "processed"
+  },
+  "created_at": "2026-08-05T16:09:15.486571+08:00",
+  "ttl_seconds": 604800
+}

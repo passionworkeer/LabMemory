@@ -1,0 +1,25 @@
+{
+  "object_id": "candidate:cand_demo_001",
+  "state": "completed",
+  "updated_at": "2026-08-05T16:09:15.511269+08:00",
+  "platform_result": {
+    "status": "approved",
+    "candidate_id": "cand_demo_001",
+    "action_audit": "pass",
+    "message": "已批准，将创建任务"
+  },
+  "created_at": "2026-08-05T16:09:15.502631+08:00",
+  "history": [
+    {
+      "from": null,
+      "to": "approved",
+      "timestamp": "2026-08-05T16:09:15.502631+08:00"
+    },
+    {
+      "from": "approved",
+      "to": "completed",
+      "timestamp": "2026-08-05T16:09:15.511809+08:00"
+    }
+  ],
+  "task_guid": "task_e34117a92f5a"
+}
