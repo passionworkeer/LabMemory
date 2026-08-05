@@ -9,3 +9,39 @@ Thumbs.db
 
 # 本地临时脚本
 extract_*.py
+
+# Python 字节码与缓存
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python 虚拟环境
+.venv/
+venv/
+env/
+
+# Python 工具缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# 打包产物
+*.egg-info/
+build/
+dist/
+
+# 凭据与本地配置（严禁入库：飞书 App Secret / Aily Key / 平台 Token）
+.env
+.env.*
+!.env.example
+config/.env
+feishu-orchestrator/feishu-orchestrator/config/.env
+
+# 运行时产物（幂等记录、状态机快照、集成日志均为本地运行生成）
+feishu-orchestrator/feishu-orchestrator/data/idempotency/
+feishu-orchestrator/feishu-orchestrator/data/state/
+feishu-orchestrator/feishu-orchestrator/data/integration_logs/
+feishu-orchestrator/feishu-orchestrator/logs/
+*.jsonl

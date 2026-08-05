@@ -1,8 +1,7 @@
-# Contracts Specification
+# contracts 规格增量
 
-## Purpose
-定义飞书编排子系统（feishu-orchestrator）与自研平台子系统（labmemory-platform）之间的冻结接口契约，使两侧可各自用 Mock 并行开发、独立验收。
-## Requirements
+## MODIFIED Requirements
+
 ### Requirement: MeetingPackage（飞书侧 → 平台）
 飞书侧 SHALL 向平台提交 `MeetingPackage`，字段以 `contracts/meeting-package.schema.json` 为准，必填：`schema_version`、`source`、`source_object_id`、`title`、`content`、`source_url`、`captured_at`；`content.transcript[]` 每个片段必填 `speaker`、`start_offset_sec`、`end_offset_sec`、`text`。缺失字段 MUST 显式置空，MUST NOT 伪造。
 
@@ -53,6 +52,8 @@ Aily 编译结果 SHALL 以 `CandidatePackage` 提交，字段以 `contracts/can
 - WHEN 任一侧提出该修改
 - THEN 修改 MUST 先经 OpenSpec change 批准，`schema_version` MUST 升级，且两侧 Mock 与样例数据 SHALL 同步更新
 
+## ADDED Requirements
+
 ### Requirement: 平台集成接口路径
 飞书侧与平台之间的集成接口 SHALL 以 `PLATFORM_API_BASE` 为基址（默认 `https://labmemory.example.com/api`），路径固定为：`POST /v1/candidates`（提交候选包）、`POST /v1/card/callback`（转发卡片回调）、`POST /v1/task/status`（回写任务状态）、`GET /v1/candidates/{candidate_id}`（查询候选详情）。所有请求 MUST 携带 `Authorization: Bearer {PLATFORM_API_KEY}`。
 
@@ -70,4 +71,3 @@ Aily 编译结果 SHALL 以 `CandidatePackage` 提交，字段以 `contracts/can
 - GIVEN 需要调整任一集成接口路径或鉴权方式
 - WHEN 任一侧提出变更
 - THEN 变更 MUST 先经 OpenSpec change 与契约版本号升级，MUST NOT 直接改代码后再补文档
-

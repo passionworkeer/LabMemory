@@ -2,6 +2,17 @@
 
 > 负责把妙记、Aily、多维表格、交互卡片、任务和知识发布串成稳定链路，向自研 LabMemory 平台提供统一标准接口。
 
+## 规格来源
+
+本子系统的行为由仓库根 `openspec/specs/` 定义，本 README 只作导览。**任何影响系统行为的变更必须先走 OpenSpec change**（见 [`CLAUDE.md`](../../CLAUDE.md)）。
+
+- [`openspec/specs/meeting-ingest/`](../../openspec/specs/meeting-ingest/spec.md) — Webhook 端点与验签、事件路由与幂等、妙记读取、`MeetingPackage` 组装、主链路编排顺序
+- [`openspec/specs/decision-compiler/`](../../openspec/specs/decision-compiler/spec.md) — Aily 技能编译、候选包产出、「Aily 只能产候选」边界
+- [`openspec/specs/feishu-actions/`](../../openspec/specs/feishu-actions/spec.md) — 复核卡片下发、回调三值分流、任务创建与回写、协同看板与知识文档回流
+- [`openspec/specs/orchestration-reliability/`](../../openspec/specs/orchestration-reliability/spec.md) — 编排状态机、幂等、重试退避、集成日志脱敏、运行模式隔离
+- [`openspec/specs/contracts/`](../../openspec/specs/contracts/spec.md) — 与平台的冻结契约与集成接口路径
+
+
 ## 目录
 
 - [系统架构](#系统架构)

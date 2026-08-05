@@ -5,13 +5,17 @@ Webhook 事件接收服务
 import json
 import hmac
 import hashlib
-import base64
+import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
 from core.config import Config
 from core.event_router import event_router
 from reliability.integration_log import integration_log
+
+
+# 签名时间窗（秒）：超出该窗口的请求视为重放，直接拒绝
+SIGNATURE_MAX_AGE_SECONDS = 300
 
 
 class WebhookHandler(BaseHTTPRequestHandler):
@@ -50,8 +54,9 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {"challenge": challenge})
                 return
 
-            # 验签（如果配置了 token）
-            # TODO: 实现完整的签名验证
+            # 验签（mock 模式跳过；real 模式失败即 401，不进入事件路由）
+            if not self._verify_request(body, "webhook.event"):
+                return
 
             # 记录入站日志
             integration_log.log(
@@ -109,6 +114,10 @@ class WebhookHandler(BaseHTTPRequestHandler):
                 self._send_json(200, {"challenge": challenge})
                 return
 
+            # 验签（mock 模式跳过；real 模式失败即 401，不进入卡片处理）
+            if not self._verify_request(body, "webhook.card_callback"):
+                return
+
             # 记录入站日志
             integration_log.log(
                 direction="inbound",
@@ -140,6 +149,35 @@ class WebhookHandler(BaseHTTPRequestHandler):
             )
             self._send_json(500, {"error": str(e)})
 
+    def _verify_request(self, body: bytes, interface: str) -> bool:
+        """
+        校验请求签名。
+
+        mock 模式跳过；real 模式验签失败时直接返回 401，调用方必须立即 return，
+        不得继续进入事件路由或卡片处理。
+        """
+        if Config.is_mock_mode():
+            return True
+
+        if verify_signature(
+            Config.CARD_CALLBACK_ENCRYPT_KEY,
+            body,
+            self.headers.get("X-Lark-Request-Timestamp", ""),
+            self.headers.get("X-Lark-Request-Nonce", ""),
+            self.headers.get("X-Lark-Signature", ""),
+        ):
+            return True
+
+        integration_log.log(
+            direction="inbound",
+            interface=interface,
+            input_data={},
+            error="signature verification failed",
+            status="failed"
+        )
+        self._send_json(401, {"code": 401, "msg": "signature verification failed"})
+        return False
+
     def _send_json(self, status_code, data):
         """发送 JSON 响应"""
         response = json.dumps(data, ensure_ascii=False).encode("utf-8")
@@ -155,21 +193,38 @@ class WebhookHandler(BaseHTTPRequestHandler):
         pass
 
 
-def verify_signature(secret: str, body: bytes, timestamp: str, nonce: str) -> bool:
+def verify_signature(
+    encrypt_key: str,
+    body: bytes,
+    timestamp: str,
+    nonce: str,
+    signature: str,
+    max_age_seconds: int = SIGNATURE_MAX_AGE_SECONDS,
+) -> bool:
     """
     验证飞书请求签名
-    签名算法：HMAC-SHA256(secret, timestamp + nonce + body)
+
+    签名算法（飞书事件订阅 / 卡片回调）：
+        sha256(timestamp + nonce + encrypt_key + raw_body) 的小写十六进制摘要
+    请求头：X-Lark-Request-Timestamp / X-Lark-Request-Nonce / X-Lark-Signature
+
+    :return: 验签是否通过。缺少任一要素、时间戳超出窗口或摘要不匹配均返回 False
     """
-    if not secret:
-        return True  # 未配置 secret 时跳过验证
+    if not (encrypt_key and timestamp and nonce and signature):
+        return False
 
-    string_to_sign = f"{timestamp}{nonce}".encode("utf-8") + body
-    hmac_obj = hmac.new(secret.encode("utf-8"), string_to_sign, hashlib.sha256)
-    signature = base64.b64encode(hmac_obj.digest()).decode("utf-8")
+    # 时间窗校验，防止签名被截获后重放
+    try:
+        if abs(time.time() - int(timestamp)) > max_age_seconds:
+            return False
+    except (TypeError, ValueError):
+        return False
 
-    # 从 header 中获取签名
-    # 实际使用时需要从 self.headers 获取 X-Lark-Signature
-    return True  # TODO: 完整实现
+    sha256 = hashlib.sha256()
+    sha256.update(f"{timestamp}{nonce}{encrypt_key}".encode("utf-8") + body)
+
+    # 常量时间比较，避免计时攻击
+    return hmac.compare_digest(sha256.hexdigest(), signature.strip().lower())
 
 
 def start_server(host: str = None, port: int = None):
@@ -182,6 +237,12 @@ def start_server(host: str = None, port: int = None):
     print(f"   - 事件订阅: POST /webhook/event")
     print(f"   - 卡片回调: POST /webhook/card")
     print(f"   - 健康检查: GET  /health")
+    if Config.is_mock_mode():
+        print(f"   ⚠️  验签已跳过（RUN_MODE=mock，仅供本地演示）")
+    elif not Config.CARD_CALLBACK_ENCRYPT_KEY:
+        print(f"   ⚠️  未配置 CARD_CALLBACK_ENCRYPT_KEY，所有请求将被拒绝（401）")
+    else:
+        print(f"   - 验签: 已启用（sha256 + {SIGNATURE_MAX_AGE_SECONDS}s 时间窗）")
     print()
 
     try:

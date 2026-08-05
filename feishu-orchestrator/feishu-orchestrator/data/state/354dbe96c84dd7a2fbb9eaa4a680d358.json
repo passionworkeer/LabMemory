@@ -1,7 +1,7 @@
 {
   "object_id": "candidate:cand_demo_001",
   "state": "completed",
-  "updated_at": "2026-08-05T16:09:15.511269+08:00",
+  "updated_at": "2026-08-05T17:30:37.602865+08:00",
   "platform_result": {
     "status": "approved",
     "candidate_id": "cand_demo_001",
@@ -19,7 +19,27 @@
       "from": "approved",
       "to": "completed",
       "timestamp": "2026-08-05T16:09:15.511809+08:00"
+    },
+    {
+      "from": "completed",
+      "to": "approved",
+      "timestamp": "2026-08-05T17:30:37.571865+08:00"
+    },
+    {
+      "from": "approved",
+      "to": "completed",
+      "timestamp": "2026-08-05T17:30:37.580864+08:00"
+    },
+    {
+      "from": "completed",
+      "to": "approved",
+      "timestamp": "2026-08-05T17:30:37.593865+08:00"
+    },
+    {
+      "from": "approved",
+      "to": "completed",
+      "timestamp": "2026-08-05T17:30:37.602865+08:00"
     }
   ],
-  "task_guid": "task_e34117a92f5a"
+  "task_guid": "task_830ae3dd0b57"
 }

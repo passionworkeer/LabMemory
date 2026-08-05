@@ -5,6 +5,8 @@
 import sys
 import os
 import json
+import time
+import hashlib
 import unittest
 
 # 添加项目根目录到路径
@@ -16,6 +18,11 @@ from core.state_machine import state_machine, MeetingState
 from core.pipeline_orchestrator import pipeline_orchestrator
 from core.card_handler import card_handler
 from core.platform_client import platform_client
+from core.webhook_server import (
+    WebhookHandler,
+    verify_signature,
+    SIGNATURE_MAX_AGE_SECONDS,
+)
 from adapters.minutes_adapter import minutes_adapter
 from adapters.aily_adapter import aily_adapter
 from adapters.im_card_adapter import im_card_adapter
@@ -420,6 +427,82 @@ class TestPipelineOrchestrator(unittest.TestCase):
         self.assertTrue(result.get("review_cards_sent"))
 
 
+class TestWebhookSignature(unittest.TestCase):
+    """Webhook 验签测试"""
+
+    ENCRYPT_KEY = "test_encrypt_key"
+
+    def _sign(self, timestamp, nonce, body, encrypt_key=None):
+        key = self.ENCRYPT_KEY if encrypt_key is None else encrypt_key
+        sha256 = hashlib.sha256()
+        sha256.update(f"{timestamp}{nonce}{key}".encode("utf-8") + body)
+        return sha256.hexdigest()
+
+    def test_valid_signature(self):
+        """正确签名应通过"""
+        timestamp = str(int(time.time()))
+        nonce, body = "nonce_001", b'{"type":"event"}'
+        signature = self._sign(timestamp, nonce, body)
+
+        self.assertTrue(
+            verify_signature(self.ENCRYPT_KEY, body, timestamp, nonce, signature)
+        )
+
+    def test_invalid_signature(self):
+        """错误签名应拒绝"""
+        timestamp = str(int(time.time()))
+        self.assertFalse(
+            verify_signature(
+                self.ENCRYPT_KEY, b'{"type":"event"}', timestamp, "nonce_001", "deadbeef"
+            )
+        )
+
+    def test_tampered_body(self):
+        """签名有效但请求体被篡改应拒绝"""
+        timestamp = str(int(time.time()))
+        nonce = "nonce_001"
+        signature = self._sign(timestamp, nonce, b'{"amount":1}')
+
+        self.assertFalse(
+            verify_signature(self.ENCRYPT_KEY, b'{"amount":999}', timestamp, nonce, signature)
+        )
+
+    def test_missing_encrypt_key(self):
+        """密钥为空应拒绝（空密钥会使签名退化为可伪造的固定哈希）"""
+        timestamp = str(int(time.time()))
+        nonce, body = "nonce_001", b'{"type":"event"}'
+        signature = self._sign(timestamp, nonce, body, encrypt_key="")
+
+        self.assertFalse(verify_signature("", body, timestamp, nonce, signature))
+
+    def test_expired_timestamp(self):
+        """超出时间窗的请求应拒绝（防重放）"""
+        timestamp = str(int(time.time()) - SIGNATURE_MAX_AGE_SECONDS - 60)
+        nonce, body = "nonce_001", b'{"type":"event"}'
+        signature = self._sign(timestamp, nonce, body)
+
+        self.assertFalse(
+            verify_signature(self.ENCRYPT_KEY, body, timestamp, nonce, signature)
+        )
+
+    def test_malformed_timestamp(self):
+        """非法时间戳应拒绝"""
+        nonce, body = "nonce_001", b'{"type":"event"}'
+        self.assertFalse(
+            verify_signature(self.ENCRYPT_KEY, body, "not-a-timestamp", nonce, "x")
+        )
+
+    def test_mock_mode_skips_verification(self):
+        """mock 模式下跳过验签"""
+        original = Config.RUN_MODE
+        Config.RUN_MODE = "mock"
+        try:
+            handler = WebhookHandler.__new__(WebhookHandler)
+            self.assertTrue(handler._verify_request(b"{}", "webhook.event"))
+        finally:
+            Config.RUN_MODE = original
+
+
 def run_all_tests():
     """运行所有测试"""
     print()
@@ -442,6 +525,7 @@ def run_all_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestCardHandler))
     suite.addTests(loader.loadTestsFromTestCase(TestReliability))
     suite.addTests(loader.loadTestsFromTestCase(TestPipelineOrchestrator))
+    suite.addTests(loader.loadTestsFromTestCase(TestWebhookSignature))
 
     # 运行测试
     runner = unittest.TextTestRunner(verbosity=2)
