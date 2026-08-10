@@ -1,0 +1,160 @@
+"""结果回流。"""
+from __future__ import annotations
+
+from datetime import datetime
+
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
+from app.api.deps import (
+    ensure_experiment_member,
+    get_current_user,
+    get_db,
+    require_member,
+    require_pi_or_lead,
+)
+from app.core.errors import NotFoundError, StateTransitionError
+from app.core.security import new_id
+from app.db.models import AuditEvent, Claim, Experiment, Result, Task, User
+from app.schemas import ResultOut, ResultPublishIn, ResultSubmitIn
+
+router = APIRouter(tags=["results"])
+
+
+@router.post("/api/tasks/{task_id}/results", response_model=ResultOut)
+def submit_result(
+    task_id: str,
+    payload: ResultSubmitIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_member),
+):
+    """PI/Lead/Executor 均可提交实验结果。每个任务只能提交一次，且必须先启动任务。"""
+    t = _get_task(db, task_id)
+    exp = db.get(Experiment, t.experiment_id)
+    ensure_experiment_member(db, exp.id, user)
+    if t.status not in ("running", "completed"):
+        raise StateTransitionError(f"任务状态 {t.status} 不可提交结果（需先启动任务）")
+
+    # 防重复提交：每个任务只能有一条结果
+    existing = db.query(Result).filter(Result.task_id == t.id).first()
+    if existing:
+        raise StateTransitionError(f"任务已提交过结果：{existing.result_id}（每个任务仅可提交一次）")
+
+    # 版本不匹配：实际参数与计划参数 key 不一致则冻结
+    planned = t.planned_params or {}
+    planned_keys = {(p.get("name") if isinstance(p, dict) else None) for p in planned.get("parameters", [])} - {None}
+    actual = payload.actual_params or {}
+    actual_keys = set(actual.keys())
+    frozen = bool(planned_keys and not actual_keys.issubset(planned_keys))
+    status = "frozen" if frozen else "submitted"
+
+    res = Result(
+        result_id=new_id("R"),
+        task_id=t.id,
+        submitter_id=user.id,
+        actual_params=payload.actual_params,
+        metrics=payload.metrics,
+        files=payload.files,
+        status=status,
+        notes=payload.notes,
+    )
+    db.add(res)
+
+    # 提交结果即视为任务执行完成（无需单独标记完成）
+    task_completed = False
+    if t.status != "completed":
+        t.status = "completed"
+        task_completed = True
+        db.add(AuditEvent(
+            actor_id=user.id, action="task.completed",
+            target_type="task", target_id=t.task_id,
+            reason="结果提交后自动完成",
+        ))
+
+    db.add(AuditEvent(
+        actor_id=user.id, action=f"result.submitted.{status}",
+        target_type="result", target_id=res.result_id,
+        after={"task_id": t.task_id, "frozen": frozen, "task_auto_completed": task_completed},
+    ))
+    db.commit()
+    db.refresh(res)
+    return _result_out(res, t.task_id, t.planned_params)
+
+
+@router.post("/api/results/{result_id}/publish", response_model=ResultOut)
+def publish_result(
+    result_id: str,
+    payload: ResultPublishIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_pi_or_lead),
+):
+    """仅 PI/Lead 可将结果发布为知识。"""
+    res = db.query(Result).filter(Result.result_id == result_id).first()
+    if res is None:
+        raise NotFoundError(f"结果不存在：{result_id}")
+    if res.status == "published":
+        raise StateTransitionError("结果已发布")
+    if res.status == "frozen":
+        raise StateTransitionError("结果已冻结，需先解决版本不匹配后再发布")
+    t = db.get(Task, res.task_id)
+    exp = db.get(Experiment, t.experiment_id) if t else None
+    if exp:
+        ensure_experiment_member(db, exp.id, user)
+
+    res.status = "published"
+    res.publisher_id = user.id
+    res.published_at = datetime.utcnow()
+    res.knowledge_status = payload.knowledge_status
+    res.notes = payload.notes or res.notes
+    if payload.failure_boundary:
+        res.failure_boundary = payload.failure_boundary
+    if payload.model_feedback:
+        res.model_feedback = payload.model_feedback
+
+    # 同步更新实验当前主张的知识验证状态（不影响生命周期 status）
+    if t and t.claim_id:
+        claim = db.get(Claim, t.claim_id)
+        if claim and claim.status == "current":
+            claim.knowledge_status = payload.knowledge_status
+
+    # 标记任务完成（结果回流完成即会议任务结束）
+    if t and t.status != "completed":
+        t.status = "completed"
+
+    db.add(AuditEvent(
+        actor_id=user.id, action="result.published",
+        target_type="result", target_id=res.result_id,
+        after={"knowledge_status": payload.knowledge_status, "task_id": t.task_id if t else None},
+    ))
+    db.commit()
+    db.refresh(res)
+    return _result_out(res, t.task_id if t else "", t.planned_params if t else None)
+
+
+# === 内部 ===
+
+def _get_task(db: Session, task_id: str) -> Task:
+    t = db.query(Task).filter(Task.task_id == task_id).first()
+    if t is None:
+        raise NotFoundError(f"任务不存在：{task_id}")
+    return t
+
+
+def _result_out(r: Result, task_id: str, planned_params: dict | None = None) -> ResultOut:
+    return ResultOut(
+        id=r.id,
+        result_id=r.result_id,
+        task_id=task_id,
+        submitter_id=r.submitter_id,
+        actual_params=r.actual_params,
+        metrics=r.metrics,
+        files=r.files,
+        status=r.status,
+        publisher_id=r.publisher_id,
+        published_at=r.published_at,
+        knowledge_status=r.knowledge_status,
+        failure_boundary=r.failure_boundary,
+        model_feedback=r.model_feedback,
+        notes=r.notes,
+        planned_params=planned_params,
+    )

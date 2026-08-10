@@ -1,0 +1,118 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CandidatePackage",
+  "description": "Aily 编译后的候选决策包，提交给 LabMemory 平台审核",
+  "type": "object",
+  "required": ["schema_version", "source_package_id", "aily_skill_version", "candidates"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema 版本号",
+      "default": "1.0.0"
+    },
+    "source_package_id": {
+      "type": "string",
+      "description": "来源 MeetingPackage ID"
+    },
+    "aily_skill_version": {
+      "type": "string",
+      "description": "Aily Skill 版本"
+    },
+    "model_version": {
+      "type": "string",
+      "description": "模型版本"
+    },
+    "prompt_version": {
+      "type": "string",
+      "description": "Prompt 模板版本"
+    },
+    "input_hash": {
+      "type": "string",
+      "description": "输入内容哈希（用于幂等和回归）"
+    },
+    "candidates": {
+      "type": "array",
+      "description": "候选决策列表",
+      "items": {
+        "type": "object",
+        "required": ["candidate_id", "type", "title", "confidence", "evidence", "status"],
+        "properties": {
+          "candidate_id": { "type": "string", "description": "候选 ID" },
+          "type": {
+            "type": "string",
+            "description": "候选类型",
+            "enum": ["decision", "conclusion", "risk", "action_item", "question", "parameter_change"]
+          },
+          "title": { "type": "string", "description": "标题" },
+          "description": { "type": "string", "description": "详细描述" },
+          "experiment_ref": { "type": "string", "description": "关联实验编号" },
+          "parameters": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "value": { "type": "string" },
+                "unit": { "type": "string" }
+              }
+            }
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "description": "置信度 0-1"
+          },
+          "evidence": {
+            "type": "array",
+            "description": "证据锚点",
+            "items": {
+              "type": "object",
+              "required": ["speaker", "text"],
+              "properties": {
+                "speaker": { "type": "string" },
+                "start_offset_sec": { "type": "integer" },
+                "end_offset_sec": { "type": "integer" },
+                "text": { "type": "string" },
+                "source_url": { "type": "string" }
+              }
+            }
+          },
+          "status": {
+            "type": "string",
+            "description": "状态",
+            "enum": ["candidate", "pending_review", "approved", "rejected", "blocked"]
+          },
+          "needs_review": {
+            "type": "boolean",
+            "description": "是否需要人工复核",
+            "default": true
+          },
+          "assignee": { "type": "string", "description": "负责人" },
+          "due_date": { "type": "string", "format": "date-time", "description": "截止时间" }
+        }
+      }
+    },
+    "risks": {
+      "type": "array",
+      "description": "风险/争议列表"
+    },
+    "action_items": {
+      "type": "array",
+      "description": "行动项列表"
+    },
+    "open_questions": {
+      "type": "array",
+      "description": "待澄清问题列表"
+    },
+    "compiled_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "编译时间"
+    },
+    "raw_output": {
+      "type": "string",
+      "description": "Aily 原始输出（用于调试和回归）"
+    }
+  }
+}

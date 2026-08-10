@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "FeishuActionRequest",
+  "description": "平台请求飞书执行动作的请求体",
+  "type": "object",
+  "required": ["schema_version", "action_id", "action_type", "idempotency_key", "actor_user_id", "payload"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema 版本号",
+      "default": "1.1.0"
+    },
+    "action_id": {
+      "type": "string",
+      "description": "动作唯一标识，用于全链路追溯"
+    },
+    "action_type": {
+      "type": "string",
+      "description": "动作类型",
+      "enum": ["send_card", "create_task", "update_base", "publish_doc", "notify"]
+    },
+    "idempotency_key": {
+      "type": "string",
+      "description": "幂等键，同一键的重复请求只执行一次动作"
+    },
+    "actor_user_id": {
+      "type": "string",
+      "description": "动作责任人（发起该动作的复核人 / 操作人）"
+    },
+    "candidate_id": {
+      "type": "string",
+      "description": "关联的候选 ID"
+    },
+    "payload": {
+      "type": "object",
+      "description": "动作参数"
+    }
+  }
+}

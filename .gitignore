@@ -5,7 +5,10 @@
 .DS_Store
 Thumbs.db
 *.swp
+*.swo
 *~
+.vscode/
+.idea/
 
 # 本地临时脚本
 extract_*.py
@@ -14,6 +17,9 @@ extract_*.py
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
+.Python
+.eggs/
 
 # Python 虚拟环境
 .venv/
@@ -26,6 +32,15 @@ env/
 .ruff_cache/
 .coverage
 htmlcov/
+
+# Node.js / 前端
+node_modules/
+*.tsbuildinfo
+.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 
 # 打包产物
 *.egg-info/
@@ -45,3 +60,8 @@ feishu-orchestrator/feishu-orchestrator/data/state/
 feishu-orchestrator/feishu-orchestrator/data/integration_logs/
 feishu-orchestrator/feishu-orchestrator/logs/
 *.jsonl
+
+# labmemory-platform：运行时 SQLite 数据库与前端本地日志
+labmemory-platform/data/labmemory.db
+labmemory-platform/data/*.db-journal
+labmemory-platform/frontend/*.log

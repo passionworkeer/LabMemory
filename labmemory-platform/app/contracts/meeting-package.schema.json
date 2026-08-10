@@ -1,0 +1,105 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "MeetingPackage",
+  "description": "飞书侧会议数据包，发送给 LabMemory 平台",
+  "type": "object",
+  "required": ["schema_version", "source", "source_object_id", "title", "content", "source_url", "captured_at"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Schema 版本号",
+      "default": "1.0.0"
+    },
+    "source": {
+      "type": "string",
+      "description": "数据来源",
+      "enum": ["feishu_minutes", "manual_upload", "meeting_transcript"]
+    },
+    "source_object_id": {
+      "type": "string",
+      "description": "来源对象唯一标识（minute_token / meeting_id）"
+    },
+    "meeting_id": {
+      "type": "string",
+      "description": "飞书会议 ID"
+    },
+    "title": {
+      "type": "string",
+      "description": "会议主题"
+    },
+    "start_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "会议开始时间（ISO 8601）"
+    },
+    "end_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "会议结束时间（ISO 8601）"
+    },
+    "organizer": {
+      "type": "string",
+      "description": "组织者"
+    },
+    "participants": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "参会人列表"
+    },
+    "content": {
+      "type": "object",
+      "required": ["transcript"],
+      "properties": {
+        "transcript": {
+          "type": "array",
+          "description": "逐字稿列表",
+          "items": {
+            "type": "object",
+            "required": ["speaker", "start_offset_sec", "end_offset_sec", "text"],
+            "properties": {
+              "speaker": { "type": "string", "description": "说话人" },
+              "start_offset_sec": { "type": "integer", "description": "开始偏移（秒）" },
+              "end_offset_sec": { "type": "integer", "description": "结束偏移（秒）" },
+              "text": { "type": "string", "description": "文本内容" }
+            }
+          }
+        },
+        "chapters": {
+          "type": "array",
+          "description": "章节列表",
+          "items": {
+            "type": "object",
+            "required": ["title", "start_offset_sec"],
+            "properties": {
+              "title": { "type": "string" },
+              "start_offset_sec": { "type": "integer" }
+            }
+          }
+        },
+        "summary": {
+          "type": "string",
+          "description": "会议摘要"
+        },
+        "action_items": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "妙记自动识别的待办事项"
+        }
+      }
+    },
+    "source_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "来源链接（妙记链接）"
+    },
+    "captured_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "数据捕获时间"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "额外元数据"
+    }
+  }
+}

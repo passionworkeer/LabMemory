@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LabMemory｜晶研智流</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+  <div id="app" class="min-h-screen"></div>
+
+  <script>
+  // === 状态 ===
+  const state = {
+    token: localStorage.getItem("labmemory_token") || "",
+    user: JSON.parse(localStorage.getItem("labmemory_user") || "null"),
+    view: "control-tower",
+    meetings: [],
+    experiments: [],
+    passport: null,
+    currentMeeting: null,
+  };
+
+  const ROLE_LABEL = { pi: "项目负责人", lead: "实验负责人", executor: "执行人", admin: "管理员" };
+
+  // === API ===
+  async function api(path, opts = {}) {
+    const headers = { "Content-Type": "application/json", ...(opts.headers || {}) };
+    if (state.token) headers["Authorization"] = `Bearer ${state.token}`;
+    const res = await fetch(path, { ...opts, headers });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { const j = await res.json(); msg = j.message || msg; } catch (_) {}
+      throw new Error(msg);
+    }
+    if (res.status === 204) return null;
+    return res.json();
+  }
+
+  async function login(username, password) {
+    const r = await api("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    });
+    state.token = r.access_token;
+    state.user = r.user;
+    localStorage.setItem("labmemory_token", r.access_token);
+    localStorage.setItem("labmemory_user", JSON.stringify(r.user));
+    render();
+  }
+
+  function logout() {
+    state.token = "";
+    state.user = null;
+    localStorage.removeItem("labmemory_token");
+    localStorage.removeItem("labmemory_user");
+    render();
+  }
+
+  // === 数据加载 ===
+  async function loadMeetings() {
+    state.meetings = await api("/api/meetings");
+    render();
+  }
+
+  async function loadExperiments() {
+    state.experiments = await api("/api/experiments");
+    render();
+  }
+
+  async function loadPassport(experimentId) {
+    state.passport = await api(`/api/experiments/${experimentId}/passport`);
+    render();
+  }
+
+  // === 渲染 ===
+  function render() {
+    const app = document.getElementById("app");
+    if (!state.token) {
+      app.innerHTML = renderLogin();
+      bindLogin();
+      return;
+    }
+    app.innerHTML = renderShell();
+    bindShell();
+    if (state.view === "control-tower") loadMeetings();
+    else if (state.view === "experiments") loadExperiments();
+    else if (state.view === "passport" && state.passport) renderPassport();
+  }
+
+  function renderLogin() {
+    return `
+      <div class="min-h-screen flex items-center justify-center">
+        <div class="bg-white p-8 rounded-lg shadow-md w-96">
+          <h1 class="text-2xl font-bold mb-2">LabMemory｜晶研智流</h1>
+          <p class="text-sm text-slate-500 mb-6">可信实验决策与记忆平台</p>
+          <form id="loginForm" class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium mb-1">用户名</label>
+              <input id="username" class="w-full border rounded px-3 py-2" placeholder="pi / lead / executor" required>
+            </div>
+            <div>
+              <label class="block text-sm font-medium mb-1">密码</label>
+              <input id="password" type="password" class="w-full border rounded px-3 py-2" placeholder="123456" required>
+            </div>
+            <button type="submit" class="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700">登录</button>
+          </form>
+          <p id="loginErr" class="text-red-500 text-sm mt-3 hidden"></p>
+          <div class="mt-6 text-xs text-slate-400">
+            <p>测试账号（密码均为 123456）：</p>
+            <p>pi / lead / executor</p>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function bindLogin() {
+    const form = document.getElementById("loginForm");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = document.getElementById("username").value.trim();
+      const password = document.getElementById("password").value;
+      try {
+        await login(username, password);
+      } catch (err) {
+        const el = document.getElementById("loginErr");
+        el.textContent = err.message;
+        el.classList.remove("hidden");
+      }
+    });
+  }
+
+  function renderShell() {
+    const navItems = [
+      { key: "control-tower", label: "决策收件箱" },
+      { key: "experiments", label: "实验管理", piOnly: true },
+      { key: "passport", label: "实验护照" },
+    ];
+    const isPI = state.user.global_role === "pi" || state.user.global_role === "admin";
+    const nav = navItems
+      .filter(n => !n.piOnly || isPI)
+      .map(n => `<button data-view="${n.key}" class="px-3 py-2 rounded ${state.view === n.key ? "bg-indigo-600 text-white" : "hover:bg-slate-200"}">${n.label}</button>`)
+      .join("");
+
+    let main = "";
+    if (state.view === "control-tower") main = renderControlTower();
+    else if (state.view === "experiments") main = renderExperiments();
+    else if (state.view === "passport") main = renderPassportShell();
+
+    return `
+      <div class="flex h-screen">
+        <aside class="w-64 bg-white border-r p-4 flex flex-col gap-2">
+          <div class="text-lg font-bold mb-4">LabMemory</div>
+          <nav class="flex flex-col gap-1">${nav}</nav>
+          <div class="mt-auto text-xs text-slate-500">
+            <div>${state.user.display_name}</div>
+            <div>${ROLE_LABEL[state.user.global_role] || state.user.global_role}</div>
+            <button id="logoutBtn" class="mt-2 text-red-500 hover:underline">退出</button>
+          </div>
+        </aside>
+        <main class="flex-1 overflow-auto p-6">${main}</main>
+      </div>
+    `;
+  }
+
+  function bindShell() {
+    document.querySelectorAll("[data-view]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        state.view = btn.dataset.view;
+        state.passport = null;
+        render();
+      });
+    });
+    const lb = document.getElementById("logoutBtn");
+    if (lb) lb.addEventListener("click", logout);
+    if (state.view === "passport") {
+      const input = document.getElementById("passportExpId");
+      if (input) {
+        const btn = document.getElementById("passportLoadBtn");
+        btn.addEventListener("click", () => {
+          const v = input.value.trim();
+          if (v) loadPassport(v);
+        });
+      }
+    }
+    if (state.view === "control-tower") bindReviewActions();
+    if (state.view === "experiments") bindExperimentActions();
+  }
+
+  function renderControlTower() {
+    if (!state.meetings) return "<p>加载中...</p>";
+    const pending = state.meetings.filter(m => m.review && m.review.status === "pending");
+    const processed = state.meetings.filter(m => m.review && m.review.status === "processed");
+    const row = (m) => {
+      const r = m.review || {};
+      const claim = m.claim;
+      const task = m.task;
+      const audit = m.audit;
+      const results = m.results || [];
+      let actions = "";
+      if (r.status === "pending") {
+        actions = `
+          <button data-action="confirm" data-mid="${m.meeting_id}" class="bg-green-600 text-white px-2 py-1 rounded text-xs">确认</button>
+          <button data-action="modify" data-mid="${m.meeting_id}" class="bg-amber-600 text-white px-2 py-1 rounded text-xs">修改后确认</button>
+          <button data-action="end" data-mid="${m.meeting_id}" class="bg-slate-500 text-white px-2 py-1 rounded text-xs">结束</button>
+        `;
+      }
+      let progress = [];
+      if (r.decision === "confirmed") progress.push("✓ 复核");
+      else if (r.decision === "ended") progress.push("✗ 已结束");
+      if (claim) progress.push("✓ 主张");
+      if (task) progress.push(`✓ 任务(${task.status})`);
+      if (audit) progress.push(`${audit.status === "passed" ? "✓" : "✗"} 审计(${audit.status})`);
+      if (results.length) progress.push(`✓ 结果(${results.length})`);
+      return `
+        <tr>
+          <td class="px-3 py-2 text-sm">${m.title}</td>
+          <td class="px-3 py-2 text-xs text-slate-500">${m.meeting_id}</td>
+          <td class="px-3 py-2 text-sm">${r.status}</td>
+          <td class="px-3 py-2 text-xs">${progress.join(" / ") || "-"}</td>
+          <td class="px-3 py-2 text-xs">${actions}</td>
+        </tr>
+      `;
+    };
+    return `
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-bold">决策收件箱</h2>
+        <button id="refreshBtn" class="text-sm text-indigo-600">刷新</button>
+      </div>
+      <div class="bg-white rounded shadow p-4 mb-6">
+        <h3 class="font-semibold mb-2">待处理 (${pending.length})</h3>
+        <table class="w-full">
+          <thead class="text-xs text-slate-500 border-b">
+            <tr><th class="text-left px-3 py-2">会议</th><th class="text-left px-3 py-2">meeting_id</th><th class="text-left px-3 py-2">状态</th><th class="text-left px-3 py-2">进度</th><th class="text-left px-3 py-2">操作</th></tr>
+          </thead>
+          <tbody>${pending.map(row).join("") || '<tr><td colspan="5" class="text-center text-slate-400 py-4">无待处理</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div class="bg-white rounded shadow p-4">
+        <h3 class="font-semibold mb-2">已处理 (${processed.length})</h3>
+        <table class="w-full">
+          <thead class="text-xs text-slate-500 border-b">
+            <tr><th class="text-left px-3 py-2">会议</th><th class="text-left px-3 py-2">meeting_id</th><th class="text-left px-3 py-2">状态</th><th class="text-left px-3 py-2">进度</th><th class="text-left px-3 py-2">操作</th></tr>
+          </thead>
+          <tbody>${processed.map(row).join("") || '<tr><td colspan="5" class="text-center text-slate-400 py-4">无</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div id="modifyModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center">
+        <div class="bg-white p-6 rounded-lg w-[600px]">
+          <h3 class="font-bold mb-3">修改后确认</h3>
+          <textarea id="modifyText" class="w-full border rounded p-2 h-40 font-mono text-xs" placeholder='JSON 修改内容，例如 {"parameters":[{"name":"temperature","value":"70","unit":"℃"}],"scope":{"material":"S1"}}'></textarea>
+          <textarea id="modifyNotes" class="w-full border rounded p-2 mt-2 h-20 text-xs" placeholder="备注（可选）"></textarea>
+          <div class="flex justify-end gap-2 mt-3">
+            <button id="modalCancel" class="px-3 py-1 border rounded">取消</button>
+            <button id="modalConfirm" class="px-3 py-1 bg-indigo-600 text-white rounded">提交修改后确认</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function bindReviewActions() {
+    const rb = document.getElementById("refreshBtn");
+    if (rb) rb.addEventListener("click", loadMeetings);
+    document.querySelectorAll("[data-action]").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const mid = btn.dataset.mid;
+        const action = btn.dataset.action;
+        if (action === "confirm") {
+          if (!confirm("确认本次会议决策（不修改）？")) return;
+          await api(`/api/meetings/${mid}/review`, {
+            method: "POST",
+            body: JSON.stringify({ decision: "confirmed" }),
+          });
+          loadMeetings();
+        } else if (action === "end") {
+          if (!confirm("结束本次会议复核（不进入后续数据链路）？")) return;
+          await api(`/api/meetings/${mid}/review`, {
+            method: "POST",
+            body: JSON.stringify({ decision: "ended", notes: "手动结束" }),
+          });
+          loadMeetings();
+        } else if (action === "modify") {
+          state.currentMeeting = mid;
+          document.getElementById("modifyModal").classList.remove("hidden");
+        }
+      });
+    });
+    const mc = document.getElementById("modalCancel");
+    if (mc) mc.addEventListener("click", () => document.getElementById("modifyModal").classList.add("hidden"));
+    const mf = document.getElementById("modalConfirm");
+    if (mf) mf.addEventListener("click", async () => {
+      try {
+        const txt = document.getElementById("modifyText").value.trim();
+        const mods = txt ? JSON.parse(txt) : {};
+        const notes = document.getElementById("modifyNotes").value.trim() || null;
+        await api(`/api/meetings/${state.currentMeeting}/review`, {
+          method: "POST",
+          body: JSON.stringify({ decision: "confirmed", modifications: mods, notes }),
+        });
+        document.getElementById("modifyModal").classList.add("hidden");
+        loadMeetings();
+      } catch (err) {
+        alert("提交失败：" + err.message);
+      }
+    });
+  }
+
+  function renderExperiments() {
+    const rows = (state.experiments || []).map(e => {
+      const members = (e.members || []).map(m => `${m.display_name}(${ROLE_LABEL[m.role] || m.role})`).join(", ");
+      return `
+        <tr>
+          <td class="px-3 py-2 text-sm">${e.name}</td>
+          <td class="px-3 py-2 text-xs font-mono">${e.experiment_id}</td>
+          <td class="px-3 py-2 text-xs">${e.project_id}</td>
+          <td class="px-3 py-2 text-xs">${e.status}</td>
+          <td class="px-3 py-2 text-xs">${members}</td>
+        </tr>
+      `;
+    }).join("");
+    return `
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-bold">实验管理 <span class="text-xs text-slate-500 ml-2">（仅 PI 可操作）</span></h2>
+        <button id="refreshExpBtn" class="text-sm text-indigo-600">刷新</button>
+      </div>
+      <div class="bg-white rounded shadow p-4">
+        <table class="w-full">
+          <thead class="text-xs text-slate-500 border-b">
+            <tr><th class="text-left px-3 py-2">实验名称</th><th class="text-left px-3 py-2">experiment_id</th><th class="text-left px-3 py-2">所属项目</th><th class="text-left px-3 py-2">状态</th><th class="text-left px-3 py-2">成员</th></tr>
+          </thead>
+          <tbody>${rows || '<tr><td colspan="5" class="text-center text-slate-400 py-4">暂无实验</td></tr>'}</tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function bindExperimentActions() {
+    const rb = document.getElementById("refreshExpBtn");
+    if (rb) rb.addEventListener("click", loadExperiments);
+  }
+
+  function renderPassportShell() {
+    return `
+      <div class="mb-4">
+        <h2 class="text-xl font-bold mb-2">实验护照</h2>
+        <div class="flex gap-2">
+          <input id="passportExpId" class="border rounded px-3 py-2 flex-1" placeholder="输入 experiment_id，例如 EXP-DEMO-001" value="${state.passport ? state.passport.experiment_id : ""}">
+          <button id="passportLoadBtn" class="bg-indigo-600 text-white px-4 py-2 rounded">查看</button>
+        </div>
+      </div>
+      <div id="passportContent">${state.passport ? renderPassport() : '<p class="text-slate-400 text-sm">输入实验编号后查看护照</p>'}</div>
+    `;
+  }
+
+  function renderPassport() {
+    if (!state.passport) return "";
+    const p = state.passport;
+    const cc = p.current_claim;
+    const meetings = (p.meetings || []).map(m => {
+      const r = m.review || {};
+      const claim = m.claim;
+      const task = m.task;
+      const audit = m.audit;
+      const results = m.results || [];
+      const pv = claim ? claim.parameter_version : null;
+      return `
+        <div class="bg-white rounded shadow p-4 mb-4">
+          <div class="flex justify-between items-start mb-2">
+            <div>
+              <h3 class="font-semibold">${m.title}</h3>
+              <p class="text-xs text-slate-500 font-mono">${m.meeting_id}</p>
+            </div>
+            <span class="text-xs px-2 py-1 rounded ${r.decision === "confirmed" ? "bg-green-100 text-green-700" : r.decision === "ended" ? "bg-slate-200 text-slate-600" : "bg-amber-100 text-amber-700"}">${r.decision || r.status}</span>
+          </div>
+          <div class="grid grid-cols-5 gap-2 text-xs">
+            <div class="bg-slate-50 rounded p-2">
+              <div class="text-slate-500">复核</div>
+              <div class="font-semibold">${r.status}</div>
+              <div class="text-slate-400">${r.modifications ? "已修改" : "原样确认"}</div>
+            </div>
+            <div class="bg-slate-50 rounded p-2">
+              <div class="text-slate-500">主张</div>
+              <div class="font-semibold">${claim ? claim.claim_id : "-"}</div>
+              <div class="text-slate-400">${claim ? claim.status : "-"}</div>
+            </div>
+            <div class="bg-slate-50 rounded p-2">
+              <div class="text-slate-500">任务</div>
+              <div class="font-semibold">${task ? task.status : "-"}</div>
+              <div class="text-slate-400 font-mono">${task ? task.task_id.slice(0, 12) : "-"}</div>
+            </div>
+            <div class="bg-slate-50 rounded p-2">
+              <div class="text-slate-500">审计</div>
+              <div class="font-semibold">${audit ? audit.status : "-"}</div>
+              <div class="text-slate-400">${audit && audit.result ? audit.result.overall : ""}</div>
+            </div>
+            <div class="bg-slate-50 rounded p-2">
+              <div class="text-slate-500">结果</div>
+              <div class="font-semibold">${results.length || 0} 条</div>
+              <div class="text-slate-400">${results.map(r => r.status).join(",") || "-"}</div>
+            </div>
+          </div>
+          ${pv ? `<details class="mt-3 text-xs"><summary class="cursor-pointer text-slate-600">参数版本 ${pv.version}</summary><pre class="bg-slate-50 p-2 mt-1 rounded overflow-auto">${JSON.stringify(pv, null, 2)}</pre></details>` : ""}
+        </div>
+      `;
+    }).join("");
+
+    const timeline = (p.timeline || []).slice().reverse().map(e => `
+      <div class="flex gap-3 text-xs mb-2">
+        <div class="text-slate-400 w-32 flex-shrink-0">${new Date(e.timestamp).toLocaleString()}</div>
+        <div class="flex-1">
+          <span class="font-mono text-indigo-600">${e.event_type}</span>
+          <span class="text-slate-500 ml-2">${e.target_type}:${e.target_id}</span>
+        </div>
+      </div>
+    `).join("");
+
+    return `
+      <div class="bg-white rounded shadow p-4 mb-4">
+        <h2 class="text-lg font-bold">${p.name}</h2>
+        <div class="text-xs text-slate-500 font-mono mb-2">${p.experiment_id} · 项目 ${p.project_id} · 状态 ${p.status}</div>
+        ${cc ? `<div class="bg-indigo-50 border border-indigo-200 rounded p-3 text-sm">
+          <div class="font-semibold">当前主张 ${cc.claim_id} <span class="text-xs px-2 py-0.5 rounded bg-indigo-200 text-indigo-800 ml-2">${cc.status}</span></div>
+          <details class="mt-1 text-xs"><summary class="cursor-pointer">参数版本 ${cc.parameter_version ? cc.parameter_version.version : "-"}</summary><pre class="bg-white p-2 mt-1 rounded overflow-auto">${JSON.stringify(cc.parameter_version, null, 2)}</pre></details>
+        </div>` : ""}
+      </div>
+      <h3 class="font-semibold mb-2">数据关系链（按会议 ID 组织）</h3>
+      ${meetings || '<p class="text-slate-400 text-sm">暂无会议</p>'}
+      <h3 class="font-semibold mb-2 mt-6">统一时间线（按实验 ID 组织）</h3>
+      <div class="bg-white rounded shadow p-4">${timeline || '<p class="text-slate-400 text-sm">暂无事件</p>'}</div>
+    `;
+  }
+
+  // 初始化
+  render();
+  </script>
+</body>
+</html>
