@@ -1,0 +1,3 @@
+# LabMemory feishu-orchestrator runtime dependencies.
+# Requires Python >= 3.10.
+python-dotenv>=1.0.0

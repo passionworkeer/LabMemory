@@ -2,8 +2,19 @@
 配置加载模块
 """
 import os
+import sys
 from dotenv import load_dotenv
 from pathlib import Path
+
+# Windows 默认控制台编码(cp1252)下，中文 print 会抛 UnicodeEncodeError。
+# 在进程启动早期将 stdout/stderr 统一为 utf-8，避免本地/演示运行报错。
+try:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 
 # 加载 .env 文件
 env_path = Path(__file__).parent.parent / "config" / ".env"

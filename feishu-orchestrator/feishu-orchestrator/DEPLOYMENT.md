@@ -62,9 +62,8 @@ venv\Scripts\activate  # Windows
 ### 4. 安装依赖
 
 ```bash
-# 当前版本仅依赖 Python 标准库，无需额外安装
-# 如后续添加依赖，执行：
-# pip install -r requirements.txt
+# 运行时依赖见 requirements.txt（当前唯一外部依赖为 python-dotenv）
+pip install -r requirements.txt
 ```
 
 ---
