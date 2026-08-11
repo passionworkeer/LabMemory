@@ -59,32 +59,74 @@ interface NavItem {
   label: string;
   icon: React.ComponentType;
   piOnly?: boolean;
+  /** 命中即激活的路由第一段（一级菜单自身 + 其详情/子环节页） */
+  segments: string[];
 }
 
-const NAV_ITEMS: NavItem[] = [
-  { to: "/tower", label: "研发控制塔", icon: IconTower },
-  { to: "/review", label: "会后复核", icon: IconReview },
-  { to: "/audit", label: "行动审计", icon: IconAudit },
-  { to: "/result", label: "结果回流", icon: IconResult },
-  { to: "/experiments", label: "实验管理", icon: IconExperiment, piOnly: true },
-  { to: "/qa", label: "可信问答", icon: IconQA },
+// 研发控制塔：总览入口，独立置顶，不归属任何分类
+const STANDALONE_ITEM: NavItem = {
+  to: "/tower",
+  label: "研发控制塔",
+  icon: IconTower,
+  segments: ["tower"],
+};
+
+// 侧边栏分类导航：执行闭环 → 实验资产 → 知识检索
+const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
+  {
+    label: "执行闭环",
+    items: [
+      { to: "/review", label: "会后复核", icon: IconReview, segments: ["review", "compiler"] },
+      { to: "/audit", label: "行动审计", icon: IconAudit, segments: ["audit"] },
+      { to: "/result", label: "结果回流", icon: IconResult, segments: ["result"] },
+    ],
+  },
+  {
+    label: "实验资产",
+    items: [
+      { to: "/experiments", label: "实验管理", icon: IconExperiment, piOnly: true, segments: ["experiments", "brief"] },
+      { to: "/passport", label: "实验护照", icon: IconPassport, segments: ["passport"] },
+    ],
+  },
+  {
+    label: "知识检索",
+    items: [
+      { to: "/qa", label: "可信问答", icon: IconQA, segments: ["qa"] },
+    ],
+  },
 ];
 
-// 辅助：实验护照单独入口（放在底部，不作为主导航）
-const EXTRA_ITEMS: NavItem[] = [
-  { to: "/passport", label: "实验护照", icon: IconPassport },
-];
+// 当前路径第一段命中菜单项声明的 segments 时，该菜单保持激活（含详情/子环节页）
+const isMenuActive = (item: NavItem, firstSegment: string) =>
+  item.segments.includes(firstSegment);
+
+function SidebarLink({ item, firstSegment }: { item: NavItem; firstSegment: string }) {
+  const Icon = item.icon;
+  const active = isMenuActive(item, firstSegment);
+  return (
+    <NavLink to={item.to} className={`sidebar-link ${active ? "active" : ""}`}>
+      <Icon />
+      <span className="flex-1">{item.label}</span>
+      {active && (
+        <span
+          className="w-1.5 h-1.5 rounded-full"
+          style={{ background: "#7aa7ff", boxShadow: "0 0 6px #7aa7ff" }}
+        />
+      )}
+    </NavLink>
+  );
+}
 
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const firstSegment = location.pathname.split("/").filter(Boolean)[0] || "tower";
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
 
   if (!user) return null;
 
   const isPI = user.global_role === "pi" || user.global_role === "admin";
-  const navItems = NAV_ITEMS.filter((n) => !n.piOnly || isPI);
 
   return (
     <div className="grid h-screen" style={{ gridTemplateColumns: "240px minmax(0,1fr)" }}>
@@ -113,56 +155,19 @@ export default function Layout() {
 
         {/* 主导航 */}
         <nav className="flex flex-col gap-1 py-4 flex-1">
-          <div className="text-xs text-slate-400 px-3 pb-2 uppercase tracking-wider font-medium">
-            主功能
-          </div>
-          {navItems.map((n) => {
-            const Icon = n.icon;
+          <SidebarLink item={STANDALONE_ITEM} firstSegment={firstSegment} />
+          {NAV_GROUPS.map((group) => {
+            const items = group.items.filter((n) => !n.piOnly || isPI);
+            if (items.length === 0) return null;
             return (
-              <NavLink
-                key={n.to}
-                to={n.to}
-                className={({ isActive }) =>
-                  `sidebar-link ${isActive ? "active" : ""}`
-                }
-                end={n.to.split("/").length <= 2}
-              >
-                {({ isActive }) => (
-                  <>
-                    <Icon />
-                    <span className="flex-1">{n.label}</span>
-                    {isActive && (
-                      <span
-                        className="w-1.5 h-1.5 rounded-full"
-                        style={{ background: "#7aa7ff", boxShadow: "0 0 6px #7aa7ff" }}
-                      />
-                    )}
-                  </>
-                )}
-              </NavLink>
-            );
-          })}
-
-          <div className="text-xs text-slate-400 px-3 pb-2 mt-4 uppercase tracking-wider font-medium">
-            查看
-          </div>
-          {EXTRA_ITEMS.map((n) => {
-            const Icon = n.icon;
-            return (
-              <NavLink
-                key={n.to}
-                to={n.to}
-                className={({ isActive }) =>
-                  `sidebar-link ${isActive ? "active" : ""}`
-                }
-              >
-                {() => (
-                  <>
-                    <Icon />
-                    <span className="flex-1">{n.label}</span>
-                  </>
-                )}
-              </NavLink>
+              <div key={group.label} className="mt-4 flex flex-col gap-1">
+                <div className="text-xs text-slate-400 px-3 pb-2 uppercase tracking-wider font-medium">
+                  {group.label}
+                </div>
+                {items.map((n) => (
+                  <SidebarLink key={n.to} item={n} firstSegment={firstSegment} />
+                ))}
+              </div>
             );
           })}
         </nav>
@@ -236,7 +241,7 @@ export default function Layout() {
       </aside>
 
       <main className="min-w-0 flex flex-col h-screen overflow-hidden">
-        {location.pathname !== "/tower" && (
+        {location.pathname !== "/tower" && location.pathname !== "/qa" && (
           <header
             className="flex-shrink-0 flex items-center px-6 gap-3"
             style={{
@@ -278,6 +283,12 @@ const PARENT_LABEL: Record<string, string> = {
   compiler: "会后复核",
 };
 
+// 无独立列表页的路由：详情页返回时应跳转到实际归属页（携带同一业务 id）
+const PARENT_ROUTE: Record<string, (parts: string[]) => string> = {
+  compiler: (parts) => `/review/${parts[1]}`,
+  brief: () => `/experiments`,
+};
+
 function PageHeader() {
   const location = useLocation();
   const { title, subLabel, parentPath, parentLabel } = useMemo(() => {
@@ -287,7 +298,7 @@ function PageHeader() {
     return {
       title: LABEL_MAP[first] || first,
       subLabel: isSub ? parts[1].slice(0, 16) : "",
-      parentPath: isSub ? `/${first}` : "",
+      parentPath: isSub ? (PARENT_ROUTE[first] ? PARENT_ROUTE[first](parts) : `/${first}`) : "",
       parentLabel: PARENT_LABEL[first] || "返回",
     };
   }, [location.pathname]);

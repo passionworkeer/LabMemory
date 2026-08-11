@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -24,6 +24,35 @@ engine = create_engine(
     connect_args=_connect_args,
     **_kwargs,
 )
+
+
+_VEC_LOADED_FLAG = "_labmemory_vec_loaded"
+
+
+def _load_vec_extension(dbapi_conn) -> None:
+    """在每个 SQLite 连接上加载 sqlite-vec 扩展（幂等）。"""
+    if getattr(dbapi_conn, _VEC_LOADED_FLAG, False):
+        return
+    try:
+        dbapi_conn.enable_load_extension(True)
+        import sqlite_vec
+        sqlite_vec.load(dbapi_conn)
+        dbapi_conn.enable_load_extension(False)
+    except Exception:
+        # sqlite-vec 未安装或扩展加载被禁用；向量功能降级，但不阻断连接
+        pass
+    finally:
+        try:
+            setattr(dbapi_conn, _VEC_LOADED_FLAG, True)
+        except Exception:
+            pass
+
+
+if settings.DATABASE_URL.startswith("sqlite"):
+    @event.listens_for(engine, "connect")
+    def _on_sqlite_connect(dbapi_conn, connection_record):
+        _load_vec_extension(dbapi_conn)
+
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, future=True)
 

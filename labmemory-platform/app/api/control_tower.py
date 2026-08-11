@@ -1,7 +1,7 @@
 """研发控制塔：聚合首页指标。"""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -44,7 +44,7 @@ def get_control_tower(db: Session = Depends(get_db), user: User = Depends(get_cu
     pending_reviews = pending_q.filter(MeetingReview.status == "pending").count()
     blocked_tasks = blocked_q.count()
     anomalies = frozen_q.count() + blocked_tasks
-    cutoff = datetime.utcnow() - timedelta(hours=24)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     published_q = (
         db.query(Result)
         .join(Task, Task.id == Result.task_id)

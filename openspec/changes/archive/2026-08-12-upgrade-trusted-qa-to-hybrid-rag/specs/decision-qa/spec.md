@@ -1,8 +1,9 @@
-# decision-qa Specification
-
 ## Purpose
+
 可信知识问答：基于「权限前置过滤 + 混合检索（结构化条件 + BM25 + 向量 + 关系扩展 + 重排）+ 大模型归纳生成」的 RAG 管线，对实验当前有效主张、已发布结果、证据片段与失败边界做带出处的语义检索式回答；无可靠证据或范围不匹配时明确拒答并列出需补充条件，避免把未经证实或已废弃的结论当作答案。
-## Requirements
+
+## ADDED Requirements
+
 ### Requirement: 问答权限前置过滤
 系统 SHALL 在检索前按请求者角色过滤可见实验：`admin` / `pi` 可见全部实验；其他角色 MUST 仅检索其作为成员（`ExperimentMember`）的实验。权限过滤 SHALL 在 SQL 层强制（`experiment_id IN (...)`），向量召回与 BM25 召回均 MUST NOT 绕过。无权内容不得出现在回答、引用或 `retrieval_details` 中。
 
@@ -200,4 +201,3 @@
 - GIVEN sqlite-vec 扩展无法加载（如未安装）
 - WHEN 应用启动
 - THEN 启动 SHALL 完成，但 `POST /api/qa/ask` SHALL 返回 503 与「向量检索扩展不可用，请安装 sqlite-vec」错误信息
-

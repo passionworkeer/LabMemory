@@ -26,7 +26,11 @@ export default function AuditList() {
   const stats = useMemo(
     () => ({
       pending: withTask.filter(
-        (m) => !m.audit || m.audit.status === "pending" || m.task?.status === "draft"
+        (m) =>
+          !m.audit ||
+          m.audit.status === "pending" ||
+          m.audit.status === "needs_confirmation" ||
+          m.task?.status === "draft"
       ).length,
       blocked: withTask.filter((m) => m.task?.status === "blocked").length,
       passed: withTask.filter((m) => m.audit?.status === "passed").length,
@@ -41,9 +45,13 @@ export default function AuditList() {
       return withTask.filter((m) => m.task?.status === "blocked");
     if (tab === "passed")
       return withTask.filter((m) => m.audit?.status === "passed");
-    // pending: 还没审计 或 审计中 或 任务还在 draft
+    // pending: 还没审计 或 审计中(needs_confirmation) 或 任务还在 draft
     return withTask.filter(
-      (m) => !m.audit || m.audit.status === "pending" || m.task?.status === "draft"
+      (m) =>
+        !m.audit ||
+        m.audit.status === "pending" ||
+        m.audit.status === "needs_confirmation" ||
+        m.task?.status === "draft"
     );
   }, [withTask, tab]);
 

@@ -57,9 +57,7 @@ export default function ExperimentPassport() {
                     <summary className="cursor-pointer text-muted hover:text-slate-700">
                       参数版本 {data.current_claim.parameter_version.version}
                     </summary>
-                    <pre className="bg-white p-2.5 mt-1.5 rounded-lg overflow-auto text-xs" style={{ border: "1px solid var(--line-light)" }}>
-                      {JSON.stringify(data.current_claim.parameter_version, null, 2)}
-                    </pre>
+                    <ParameterVersionView pv={data.current_claim.parameter_version} />
                   </details>
                 )}
               </div>
@@ -70,7 +68,7 @@ export default function ExperimentPassport() {
 
           <div className="section-title">
             <b>数据关系链</b>
-            <span className="section-meta">按会议 ID 组织 · {data.meetings.length} 个会议</span>
+            <span className="section-meta">{data.meetings.length} 个会议</span>
           </div>
           {data.meetings.length === 0 ? (
             <div className="card">
@@ -96,7 +94,7 @@ export default function ExperimentPassport() {
                     </div>
                     <span
                       className={`tag ${
-                        r?.decision === "confirmed" ? "green" : r?.decision === "ended" ? "amber" : "blue"
+                        r?.decision === "confirmed" ? "green" : r?.decision === "ended" ? "red" : "blue"
                       }`}
                     >
                       {r?.decision || r?.status || "pending"}
@@ -127,9 +125,7 @@ export default function ExperimentPassport() {
                       <summary className="cursor-pointer text-muted hover:text-slate-700">
                         参数版本 {pv.version}
                       </summary>
-                      <pre className="bg-slate-50 p-2.5 mt-1.5 rounded-lg overflow-auto" style={{ border: "1px solid var(--line-light)" }}>
-                        {JSON.stringify(pv, null, 2)}
-                      </pre>
+                      <ParameterVersionView pv={pv} />
                     </details>
                   )}
                 </div>
@@ -139,7 +135,7 @@ export default function ExperimentPassport() {
 
           <div className="section-title" style={{ marginTop: 24 }}>
             <b>统一时间线</b>
-            <span className="section-meta">按实验 ID 组织 · {data.timeline.length} 个事件</span>
+            <span className="section-meta">{data.timeline.length} 个事件</span>
           </div>
           <div className="card">
             {data.timeline.length === 0 ? (
@@ -168,6 +164,55 @@ export default function ExperimentPassport() {
             )}
           </div>
         </>
+      )}
+    </div>
+  );
+}
+
+interface ParameterVersionShape {
+  version?: string;
+  effective_at?: string;
+  parameters?: { name: string; value: string; unit?: string }[];
+  scope?: Record<string, unknown>;
+}
+
+function ParameterVersionView({ pv }: { pv: ParameterVersionShape }) {
+  const params = pv.parameters || [];
+  const scopeEntries = Object.entries(pv.scope || {});
+  const showExtra = scopeEntries.length > 0 || !!pv.effective_at;
+  if (params.length === 0 && !showExtra) {
+    return <div className="mt-2 text-xs text-muted">暂无参数</div>;
+  }
+  return (
+    <div className="mt-2 rounded-lg p-3 text-xs space-y-2" style={{ background: "var(--line-light)" }}>
+      {params.length > 0 && (
+        <div className="space-y-1.5">
+          {params.map((p, i) => (
+            <div key={i} className="flex items-baseline gap-2">
+              <span className="text-slate-500 w-20 shrink-0 truncate">{p.name}</span>
+              <span className="font-bold text-slate-800">{p.value}</span>
+              {p.unit && <span className="text-muted">{p.unit}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+      {showExtra && (
+        <div className="pt-2 border-t border-slate-200/70 space-y-1.5">
+          {scopeEntries.length > 0 && (
+            <div>
+              <span className="text-slate-500 mr-1">适用范围：</span>
+              <span className="text-slate-700">
+                {scopeEntries.map(([k, v]) => `${k}=${String(v)}`).join(" / ")}
+              </span>
+            </div>
+          )}
+          {pv.effective_at && (
+            <div>
+              <span className="text-slate-500 mr-1">生效时间：</span>
+              <span className="text-slate-700">{new Date(pv.effective_at).toLocaleString()}</span>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

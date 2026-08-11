@@ -83,7 +83,7 @@ export default function ReviewsList() {
                   <h3 className="font-semibold text-base group-hover:text-blue-600 transition">
                     {m.title}
                   </h3>
-                  <span className={`tag ${m.review?.status === "pending" ? "amber" : "green"}`}>
+                  <span className={`tag ${m.review?.status === "pending" ? "amber" : m.review?.decision === "ended" ? "red" : "green"}`}>
                     {m.review?.status === "pending" ? "待复核" : m.review?.decision}
                   </span>
                 </div>

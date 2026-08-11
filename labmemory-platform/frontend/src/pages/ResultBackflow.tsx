@@ -1,10 +1,28 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { apiPublishResult, apiStartTask, apiSubmitResult } from "../api";
 import { dialog } from "../dialog";
 import ParameterEditor, { type ParamRow } from "../components/ParameterEditor";
 import type { MeetingDetailOut, ResultOut } from "../types";
 import { useAuth } from "../store";
+
+function DictChips({ data }: { data: Record<string, unknown> | null | undefined }) {
+  const entries = data ? Object.entries(data) : [];
+  return (
+    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+      {entries.length > 0 ? (
+        entries.map(([k, v], i) => (
+          <span key={i} className="inline-flex items-baseline gap-1">
+            <span className="text-slate-500">{k}</span>
+            <span className="font-semibold text-slate-700">{String(v)}</span>
+          </span>
+        ))
+      ) : (
+        <span className="muted text-sm">-</span>
+      )}
+    </div>
+  );
+}
 
 export default function ResultBackflow() {
   const { taskId } = useParams<{ taskId: string }>();
@@ -21,6 +39,7 @@ export default function ResultBackflow() {
   const [modelPrediction, setModelPrediction] = useState("");
   const { user } = useAuth();
   const canPublish = user?.global_role === "pi" || user?.global_role === "lead" || user?.global_role === "admin";
+  const [publishingResultId, setPublishingResultId] = useState<string | null>(null);
 
   const load = () => {
     if (!taskId) return;
@@ -116,6 +135,12 @@ export default function ResultBackflow() {
         message: "结果已发布为知识，主张 knowledge_status 已更新",
         variant: "success",
       });
+      setPublishStatus("partially_supported");
+      setFailurePhenomenon("");
+      setFailureTrigger("");
+      setModelVersion("");
+      setModelPrediction("");
+      setPublishingResultId(null);
       load();
     } catch (e) {
       await dialog.alert({ message: "发布失败：" + (e as Error).message, variant: "error" });
@@ -134,37 +159,20 @@ export default function ResultBackflow() {
 
   return (
     <div className="fade-in">
-      <div className="flex justify-between items-end mb-4 flex-wrap gap-3">
-        <div className="meta-row">
-          <span className="mono">任务 {task?.task_id}</span>
-          {task && (
-            <>
-              <span className="sep" />
-              <span>状态：{task.status}</span>
-            </>
-          )}
-        </div>
-        <Link to={`/passport/${meeting.experiment_id}`} className="btn sm ghost">
-          实验护照 →
-        </Link>
-      </div>
-
       <div className="grid grid-cols-2 gap-4 mb-4 max-md:grid-cols-1">
         <div className="card">
           <div className="section-title">
             <b>计划参数（来自主张版本）</b>
           </div>
           {planned.parameters && planned.parameters.length > 0 ? (
-            <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
               {planned.parameters.map((p, i) => (
-                <div key={i} className="flex justify-between items-end pb-2 border-b border-line-light last:border-0">
-                  <div>
-                    <small className="text-muted">{p.name}</small>
-                    <strong className="block text-xl">
-                      {p.value} {p.unit}
-                    </strong>
+                <div key={i} className="rounded-lg p-3" style={{ background: "var(--line-light)" }}>
+                  <small className="text-xs text-muted">{p.name}</small>
+                  <div className="mt-0.5 flex items-baseline gap-1">
+                    <strong className="text-lg">{p.value}</strong>
+                    {p.unit && <span className="text-xs text-muted">{p.unit}</span>}
                   </div>
-                  <span className="tag blue">计划</span>
                 </div>
               ))}
             </div>
@@ -271,9 +279,9 @@ export default function ResultBackflow() {
             <b>结果列表</b>
             <span className="section-meta">{results.length} 条</span>
           </div>
-          <div className="space-y-3">
+          <div className="rounded-xl p-3 space-y-3" style={{ background: "var(--line-light)" }}>
             {results.map((r) => (
-              <div key={r.result_id} className="border border-line rounded-xl p-3">
+              <div key={r.result_id} className="rounded-lg p-4" style={{ background: "#fff" }}>
                 <div className="flex justify-between items-start flex-wrap gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="font-semibold text-sm flex items-center gap-2 flex-wrap">
@@ -287,12 +295,19 @@ export default function ResultBackflow() {
                         </span>
                       )}
                     </div>
-                    <div className="text-xs muted mt-1.5">
-                      实际参数：{JSON.stringify(r.actual_params)} · 指标：{JSON.stringify(r.metrics)}
+                    <div className="grid grid-cols-2 gap-3 mt-2.5">
+                      <div>
+                        <div className="text-xs muted mb-1 font-semibold">实际参数</div>
+                        <DictChips data={r.actual_params} />
+                      </div>
+                      <div>
+                        <div className="text-xs muted mb-1 font-semibold">指标</div>
+                        <DictChips data={r.metrics} />
+                      </div>
                     </div>
                   </div>
-                  {r.status === "submitted" && canPublish && (
-                    <button className="btn success sm" onClick={() => publish(r)} disabled={busy}>
+                  {r.status === "submitted" && canPublish && publishingResultId !== r.result_id && (
+                    <button className="btn success sm" onClick={() => setPublishingResultId(r.result_id)} disabled={busy}>
                       发布为知识
                     </button>
                   )}
@@ -301,17 +316,88 @@ export default function ResultBackflow() {
                   )}
                 </div>
                 {r.failure_boundary && (
-                  <div className="mt-2 p-2.5 rounded-lg text-xs" style={{ background: "#fffafb", border: "1px solid #f0c6c9" }}>
+                  <div className="mt-2.5 p-2.5 rounded-lg text-xs" style={{ background: "var(--red-soft)" }}>
                     <b className="text-red-700">失败边界卡：</b>
-                    {r.failure_boundary.phenomenon} · 触发 {r.failure_boundary.trigger_condition} · 根因{" "}
-                    {r.failure_boundary.root_cause_status}
+                    <span className="text-slate-700">
+                      {r.failure_boundary.phenomenon} · 触发 {r.failure_boundary.trigger_condition} · 根因{" "}
+                      {r.failure_boundary.root_cause_status}
+                    </span>
                   </div>
                 )}
                 {r.model_feedback && (
                   <div className="mt-1.5 p-2.5 rounded-lg text-xs" style={{ background: "var(--purple-soft)" }}>
                     <b className="text-purple-700">模型偏差卡：</b>
-                    模型 {r.model_feedback.model_version} · 预测 {r.model_feedback.prediction} · 偏差{" "}
-                    {r.model_feedback.deviation_type}
+                    <span className="text-slate-700">
+                      模型 {r.model_feedback.model_version} · 预测 {r.model_feedback.prediction} · 偏差{" "}
+                      {r.model_feedback.deviation_type}
+                    </span>
+                  </div>
+                )}
+                {publishingResultId === r.result_id && (
+                  <div className="mt-3 pt-3 border-t border-line-light">
+                    <div className="text-sm font-semibold mb-3 flex items-center gap-2">
+                      <span className="badge-dot purple" />
+                      知识卡片
+                      <span className="text-xs text-muted font-normal">填写后确认发布</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 max-md:grid-cols-1">
+                      <div className="field">
+                        <label className="field-label">知识状态</label>
+                        <select
+                          className="input"
+                          value={publishStatus}
+                          onChange={(e) => setPublishStatus(e.target.value as "supported" | "partially_supported" | "refuted")}
+                        >
+                          <option value="supported">supported（支持）</option>
+                          <option value="partially_supported">partially_supported（部分支持）</option>
+                          <option value="refuted">refuted（推翻）</option>
+                        </select>
+                      </div>
+                      <div className="field">
+                        <label className="field-label">失败现象</label>
+                        <input
+                          className="input"
+                          value={failurePhenomenon}
+                          onChange={(e) => setFailurePhenomenon(e.target.value)}
+                          placeholder="如：副产物升至 9%"
+                        />
+                      </div>
+                      <div className="field">
+                        <label className="field-label">触发条件</label>
+                        <input
+                          className="input"
+                          value={failureTrigger}
+                          onChange={(e) => setFailureTrigger(e.target.value)}
+                          placeholder="如：65℃ / 2h / 1.0 eq"
+                        />
+                      </div>
+                      <div className="field">
+                        <label className="field-label">模型版本</label>
+                        <input
+                          className="input mono"
+                          value={modelVersion}
+                          onChange={(e) => setModelVersion(e.target.value)}
+                          placeholder="如：MODEL-RXN-v7"
+                        />
+                      </div>
+                      <div className="field col-span-2 max-md:col-span-1">
+                        <label className="field-label">模型预测</label>
+                        <input
+                          className="input"
+                          value={modelPrediction}
+                          onChange={(e) => setModelPrediction(e.target.value)}
+                          placeholder="如：成功率 86%，副产物低于5%"
+                        />
+                      </div>
+                    </div>
+                    <div className="mt-3 flex justify-end gap-2">
+                      <button className="btn" onClick={() => setPublishingResultId(null)} disabled={busy}>
+                        取消
+                      </button>
+                      <button className="btn success" onClick={() => publish(r)} disabled={busy}>
+                        {busy ? "发布中..." : "确认发布"}
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -320,64 +406,6 @@ export default function ResultBackflow() {
         </div>
       )}
 
-      {canPublish && results.some((r) => r.status === "submitted") && (
-        <div className="card">
-          <div className="section-title">
-            <b>发布知识时填写失败边界 / 模型偏差</b>
-            <span className="section-meta">可选</span>
-          </div>
-          <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
-            <div className="field">
-              <label className="field-label">知识状态</label>
-              <select
-                className="input"
-                value={publishStatus}
-                onChange={(e) => setPublishStatus(e.target.value as "supported" | "partially_supported" | "refuted")}
-              >
-                <option value="supported">supported（支持）</option>
-                <option value="partially_supported">partially_supported（部分支持）</option>
-                <option value="refuted">refuted（推翻）</option>
-              </select>
-            </div>
-            <div className="field">
-              <label className="field-label">失败现象</label>
-              <input
-                className="input"
-                value={failurePhenomenon}
-                onChange={(e) => setFailurePhenomenon(e.target.value)}
-                placeholder="如：副产物升至 9%"
-              />
-            </div>
-            <div className="field">
-              <label className="field-label">触发条件</label>
-              <input
-                className="input"
-                value={failureTrigger}
-                onChange={(e) => setFailureTrigger(e.target.value)}
-                placeholder="如：65℃ / 2h / 1.0 eq"
-              />
-            </div>
-            <div className="field">
-              <label className="field-label">模型版本</label>
-              <input
-                className="input mono"
-                value={modelVersion}
-                onChange={(e) => setModelVersion(e.target.value)}
-                placeholder="如：MODEL-RXN-v7"
-              />
-            </div>
-            <div className="field col-span-2 max-md:col-span-1">
-              <label className="field-label">模型预测</label>
-              <input
-                className="input"
-                value={modelPrediction}
-                onChange={(e) => setModelPrediction(e.target.value)}
-                placeholder="如：成功率 86%，副产物 ≤5%"
-              />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

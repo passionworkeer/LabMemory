@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   apiAckFailureBoundary,
   apiApproveTask,
@@ -207,37 +207,8 @@ export default function ActionAudit() {
   const confirmations = audit?.result?.confirmations || [];
   const failureBoundaries = (checksRaw["failure_boundary"] as unknown as { boundaries?: FailureBoundaryItem[] })?.boundaries || [];
 
-  const statusTag = effectiveBlocked
-    ? { label: "已阻断", cls: "red" }
-    : auditPassed
-    ? { label: "已通过", cls: "green" }
-    : needsConfirm
-    ? { label: "需确认", cls: "amber" }
-    : { label: "待审计", cls: "amber" };
-
   return (
     <div className="fade-in">
-      {/* 顶部状态条 */}
-      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
-        <div className="meta-row">
-          <span className="mono">任务 {compare.task_id}</span>
-          {task && (
-            <>
-              <span className="sep" />
-              <span>状态：{task.status}</span>
-            </>
-          )}
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className={`tag ${statusTag.cls}`}>{statusTag.label}</span>
-          {(task?.status === "running" || task?.status === "completed") && (
-            <Link to={`/result/${task.task_id}`} className="btn sm ghost">
-              结果回流 →
-            </Link>
-          )}
-        </div>
-      </div>
-
       {/* 阻断警告条 */}
       {effectiveBlocked && (
         <div

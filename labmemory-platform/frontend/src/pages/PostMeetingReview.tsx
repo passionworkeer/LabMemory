@@ -14,6 +14,34 @@ const GATES = [
   { key: "owner", label: "责任门", desc: "提出人/负责人/审核人" },
 ];
 
+type ParamItem = { name: string; value: string; unit?: string };
+
+function ParamList({ params, aiParams }: { params: ParamItem[]; aiParams?: ParamItem[] }) {
+  if (params.length === 0) {
+    return <span className="muted text-sm">-</span>;
+  }
+  return (
+    <div className="space-y-1">
+      {params.map((p, i) => {
+        const aiP = aiParams?.find((ap) => ap.name === p.name);
+        const changed = !!aiParams && (!aiP || aiP.value !== p.value || (aiP.unit || "") !== (p.unit || ""));
+        return (
+          <div
+            key={i}
+            className="flex items-baseline gap-2 px-2 py-1.5 rounded-md text-sm"
+            style={changed ? { boxShadow: "inset 3px 0 0 var(--amber)" } : undefined}
+          >
+            <span className="text-slate-500 w-20 shrink-0 truncate text-xs">{p.name}</span>
+            <span className="font-bold text-slate-800">{p.value}</span>
+            {p.unit && <span className="text-muted text-xs">{p.unit}</span>}
+            {changed && <span className="ml-auto text-xs text-amber-600">已改</span>}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function PostMeetingReview() {
   const { meetingId } = useParams<{ meetingId: string }>();
   const [data, setData] = useState<MeetingDetailOut | null>(null);
@@ -99,11 +127,6 @@ export default function PostMeetingReview() {
       {/* 页头 */}
       <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
         <div className="min-w-0 flex-1">
-          <div className="meta-row mb-1.5">
-            <span className="mono">{data.meeting_id}</span>
-            <span className="sep" />
-            <span>来源：{data.source}</span>
-          </div>
           <h1 className="text-xl font-bold text-slate-800 truncate">{data.title}</h1>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -120,7 +143,7 @@ export default function PostMeetingReview() {
       <div className="card mb-5">
         <div className="section-title">
           <b>参数复核对比</b>
-          <span className="section-meta">三值留痕：原始 → AI → 人工</span>
+          <span className="section-meta">三值留痕：原始转写 → AI 候选 → 人工确认</span>
         </div>
 
         {paramCandidates.length === 0 ? (
@@ -132,15 +155,16 @@ export default function PostMeetingReview() {
         ) : (
           <div className="space-y-4">
             {paramCandidates.map((c) => {
-              const paramStr = c.parameters
-                .map((p) => `${p.name}=${p.value}${p.unit || ""}`)
-                .join(", ");
               const transcriptText = c.evidence.map((e) => e.text).join(" / ");
-              const modified = processed && review?.modifications;
+              const modified = processed && !!review?.modifications;
+              const modParams = (review?.modifications?.parameters as ParamItem[] | undefined) || [];
+              const unitComplete = c.parameters.length > 0 && c.parameters.every((p) => p.unit);
+              const evidenceLocated = c.evidence.length > 0;
               return (
                 <div
                   key={c.candidate_id}
-                  className="border border-line rounded-xl overflow-hidden"
+                  className="rounded-xl overflow-hidden"
+                  style={{ background: "var(--line-light)" }}
                 >
                   <div
                     className="px-4 py-3 flex items-center justify-between flex-wrap gap-2"
@@ -152,8 +176,12 @@ export default function PostMeetingReview() {
                       <span className="text-xs text-blue-700">{c.type}</span>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="tag green">✓ 单位完整</span>
-                      <span className="tag green">✓ 证据可定位</span>
+                      <span className={`tag ${unitComplete ? "green" : "amber"}`}>
+                        {unitComplete ? "✓ 单位完整" : "⚠ 单位缺失"}
+                      </span>
+                      <span className={`tag ${evidenceLocated ? "green" : "amber"}`}>
+                        {evidenceLocated ? "✓ 证据可定位" : "⚠ 证据缺失"}
+                      </span>
                       {c.confidence !== undefined && c.confidence !== null && (
                         <span className="tag blue">
                           置信度 {(c.confidence * 100).toFixed(0)}%
@@ -162,40 +190,47 @@ export default function PostMeetingReview() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 divide-x divide-line-light">
-                    <div className="p-4">
-                      <div className="text-xs muted mb-2 font-semibold">原始转写</div>
-                      <div className="text-sm leading-relaxed">
-                        {transcriptText || <span className="muted">-</span>}
-                      </div>
-                      {c.evidence.length > 0 && (
-                        <div className="mt-2 text-xs muted">
-                          {c.evidence[0].speaker} · {c.evidence[0].start_offset_sec}s
-                        </div>
-                      )}
+                  <div className="px-4 py-3">
+                    <div className="text-xs muted mb-1.5 font-semibold">原始转写</div>
+                    <div className="text-sm leading-relaxed text-slate-700">
+                      {transcriptText || <span className="muted">-</span>}
                     </div>
-                    <div className="p-4">
+                    {c.evidence.length > 0 && (
+                      <div className="mt-1.5 text-xs muted">
+                        {c.evidence[0].speaker}
+                        {c.evidence[0].start_offset_sec !== undefined
+                          ? ` · ${c.evidence[0].start_offset_sec}s`
+                          : ""}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 px-4 pb-4">
+                    <div className="p-3.5 rounded-lg" style={{ background: "white" }}>
                       <div className="text-xs muted mb-2 font-semibold">AI 候选值</div>
-                      <div className="font-mono text-sm">{paramStr}</div>
+                      <ParamList params={c.parameters} />
                       <div className="mt-2 text-xs muted">
                         语义：{c.description || "计划值"}
                       </div>
                     </div>
-                    <div className="p-4">
+                    <div className="p-3.5 rounded-lg" style={{ background: "white" }}>
                       <div className="text-xs muted mb-2 font-semibold flex items-center gap-2">
                         <span>人工确认值</span>
-                        {modified && <span className="tag amber">已修改</span>}
+                        {modified ? (
+                          <span className="tag amber">已修改</span>
+                        ) : processed ? (
+                          <span className="tag green">原样确认</span>
+                        ) : null}
                       </div>
                       {processed ? (
                         modified ? (
-                          <pre className="text-xs bg-slate-50 p-2.5 rounded-lg overflow-auto" style={{ border: "1px solid var(--line-light)" }}>
-                            {JSON.stringify(review?.modifications?.parameters, null, 2)}
-                          </pre>
+                          modParams.length > 0 ? (
+                            <ParamList params={modParams} aiParams={c.parameters} />
+                          ) : (
+                            <span className="muted text-sm">已清空所有参数</span>
+                          )
                         ) : (
-                          <div>
-                            <span className="tag green">原样确认</span>
-                            <div className="font-mono text-sm mt-2">{paramStr}</div>
-                          </div>
+                          <ParamList params={c.parameters} />
                         )
                       ) : (
                         <span className="muted text-sm">待确认</span>
@@ -304,45 +339,61 @@ export default function PostMeetingReview() {
           <>
             <div className="section-title">
               <b>复核操作</b>
-              <span className="section-meta">三角色均可确认或结束</span>
             </div>
 
-            <div className="field">
-              <label className="field-label">确认的参数（可修改）</label>
-              <ParameterEditor
-                rows={paramRows}
-                onChange={setParamRows}
-                mode="params"
-                namePlaceholder="参数名"
-                valuePlaceholder="值"
-              />
-              <span className="field-hint">
-                默认显示 AI 候选值；如需修改直接编辑表格行或增删。"高级 JSON"可用于复杂结构。
-              </span>
+            <div className="space-y-3">
+              <div className="rounded-xl p-4" style={{ background: "var(--line-light)" }}>
+                <div className="field">
+                  <label className="field-label">
+                    <span className="badge-dot blue" />
+                    确认的参数（可修改）
+                  </label>
+                  <ParameterEditor
+                    rows={paramRows}
+                    onChange={setParamRows}
+                    mode="params"
+                    namePlaceholder="参数名"
+                    valuePlaceholder="值"
+                  />
+                  <span className="field-hint">
+                    默认显示 AI 候选值；如需修改直接编辑表格行或增删。"高级 JSON"可用于复杂结构。
+                  </span>
+                </div>
+              </div>
+
+              <div className="rounded-xl p-4" style={{ background: "var(--line-light)" }}>
+                <div className="field">
+                  <label className="field-label">
+                    <span className="badge-dot green" />
+                    适用范围（可修改）
+                  </label>
+                  <ParameterEditor
+                    rows={scopeRows}
+                    onChange={setScopeRows}
+                    mode="kv"
+                    namePlaceholder="条件"
+                    valuePlaceholder="值"
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-xl p-4" style={{ background: "var(--line-light)" }}>
+                <div className="field">
+                  <label className="field-label">
+                    <span className="badge-dot amber" />
+                    备注 / 修改原因（可选）
+                  </label>
+                  <input
+                    className="input"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="填写修改原因或备注说明"
+                  />
+                </div>
+              </div>
             </div>
 
-            <div className="mt-4 field">
-              <label className="field-label">适用范围（可修改）</label>
-              <ParameterEditor
-                rows={scopeRows}
-                onChange={setScopeRows}
-                mode="kv"
-                namePlaceholder="条件"
-                valuePlaceholder="值"
-              />
-            </div>
-
-            <div className="mt-4 field">
-              <label className="field-label">备注 / 修改原因（可选）</label>
-              <input
-                className="input"
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                placeholder="填写修改原因或备注说明"
-              />
-            </div>
-
-            <div className="mt-5 flex justify-end gap-2">
+            <div className="mt-5 flex justify-start gap-2">
               <button className="btn" onClick={() => navigate(-1)} disabled={!!submitting}>
                 取消
               </button>
@@ -351,7 +402,7 @@ export default function PostMeetingReview() {
                 onClick={() => onSubmitDecision("ended")}
                 disabled={!!submitting}
               >
-                {submitting === "ended" ? "提交中..." : "结束"}
+                {submitting === "ended" ? "提交中..." : "结束流程"}
               </button>
               <button
                 className="btn success"

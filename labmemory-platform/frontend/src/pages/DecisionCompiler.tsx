@@ -37,17 +37,6 @@ export default function DecisionCompiler() {
 
   return (
     <div className="fade-in">
-      <div className="flex justify-between items-end mb-4 flex-wrap gap-3">
-        <div className="meta-row">
-          <span className="mono">{data.meeting_id}</span>
-          <span className="sep" />
-          <span>{data.candidates.length} 个候选</span>
-        </div>
-        <Link to={`/review/${meetingId}`} className="btn sm ghost">
-          进入会后复核台 →
-        </Link>
-      </div>
-
       <div className="grid gap-4" style={{ gridTemplateColumns: "1.05fr .95fr" }}>
         <div className="card" style={{ maxHeight: 620, overflow: "auto" }}>
           <div className="section-title">
@@ -110,7 +99,7 @@ export default function DecisionCompiler() {
             </div>
             <p className="text-xs muted -mt-2 mb-3">
               状态：
-              <span className={`tag ${data.review?.decision === "confirmed" ? "green" : data.review?.decision === "ended" ? "amber" : "blue"}`}>
+              <span className={`tag ${data.review?.decision === "confirmed" ? "green" : data.review?.decision === "ended" ? "red" : "blue"}`}>
                 {data.review?.status || "pending"}
                 {data.review?.decision ? ` · ${data.review.decision}` : ""}
               </span>

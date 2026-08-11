@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -42,8 +42,36 @@ async def lifespan(app: FastAPI):
     logger.info("LabMemory 平台启动 db=%s", settings.DATABASE_URL)
     Base.metadata.create_all(bind=engine)
     _run_migrations()
+    _init_vec_index()
     yield
     logger.info("LabMemory 平台关闭")
+
+
+def _init_vec_index() -> None:
+    """初始化 sqlite-vec 扩展与向量/FTS 虚拟表；若索引为空且 DB 有数据则触发全量重建。"""
+    from sqlalchemy.orm import Session
+
+    from app.db.session import SessionLocal
+    from app.db import vec
+    from app.services.indexer import ensure_index_ready
+
+    db: Session = SessionLocal()
+    try:
+        if not vec.ensure_vec_tables(db, settings.QWEN_EMBEDDING_DIM):
+            logger.warning("sqlite-vec 扩展不可用，问答端点将返回 503")
+            return
+        stats = ensure_index_ready(db)
+        if stats:
+            logger.info(
+                "RAG 索引首次重建完成：claims=%d results=%d evidence=%d boundaries=%d errors=%d",
+                stats["claims"], stats["results"], stats["evidence"], stats["boundaries"], len(stats["errors"]),
+            )
+        else:
+            logger.info("RAG 索引就绪（无需重建）")
+    except Exception as e:
+        logger.warning("RAG 索引初始化失败（不阻断启动）：%s", e)
+    finally:
+        db.close()
 
 
 def _run_migrations() -> None:
@@ -152,9 +180,9 @@ app.add_middleware(
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    start = datetime.utcnow()
+    start = datetime.now(timezone.utc)
     response = await call_next(request)
-    duration_ms = (datetime.utcnow() - start).total_seconds() * 1000
+    duration_ms = (datetime.now(timezone.utc) - start).total_seconds() * 1000
     logger.info("%s %s - %d - %.2fms", request.method, request.url.path, response.status_code, duration_ms)
     return response
 
@@ -175,7 +203,7 @@ def health_check(db: Session = Depends(get_db)):
         "service": "labmemory-platform",
         "version": "2.0.0",
         "data_source": "sqlite",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 

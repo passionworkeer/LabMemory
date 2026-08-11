@@ -7,7 +7,7 @@
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from app.core.security import hash_password, new_id
 from app.db.base import Base
@@ -133,7 +133,7 @@ def _make_candidate(db, meeting: Meeting, parameters: list[dict], title: str, de
             risks=[],
             action_items=[],
             open_questions=[],
-            compiled_at=datetime.utcnow(),
+            compiled_at=datetime.now(timezone.utc),
             raw_payload={},
         )
         db.add(cand)
@@ -147,7 +147,7 @@ def _confirm_review(db, meeting: Meeting, exp: Experiment, reviewer: User, modif
     r.status = "processed"
     r.decision = "confirmed"
     r.reviewer_id = reviewer.id
-    r.reviewed_at = datetime.utcnow()
+    r.reviewed_at = datetime.now(timezone.utc)
     r.modifications = modifications
 
     cand = db.query(Candidate).filter(Candidate.meeting_id == meeting.id).first()
@@ -185,7 +185,7 @@ def _confirm_review(db, meeting: Meeting, exp: Experiment, reviewer: User, modif
         parameter_version={
             "parameters": params,
             "version": f"v{version_no}",
-            "effective_at": datetime.utcnow().isoformat(),
+            "effective_at": datetime.now(timezone.utc).isoformat(),
             "scope": modifications.get("scope") if modifications else None,
         },
         status="current",
@@ -225,7 +225,7 @@ def _run_audit(db, task: Task, auditor: User, passed: bool) -> ActionAudit:
         task_id=task.id,
         status="passed" if passed else "blocked",
         auditor_id=auditor.id,
-        audited_at=datetime.utcnow(),
+        audited_at=datetime.now(timezone.utc),
         checks=checks,
         result={"overall": "pass" if passed else "blocked", "reason": "" if passed else "引用已过期参数版本"},
     )
@@ -264,7 +264,7 @@ def _submit_and_publish(db, task: Task, claim: Claim, submitter: User, publisher
     db.flush()
     res.status = "published"
     res.publisher_id = publisher.id
-    res.published_at = datetime.utcnow()
+    res.published_at = datetime.now(timezone.utc)
     res.knowledge_status = knowledge_status
     res.failure_boundary = failure_boundary
     claim.knowledge_status = knowledge_status
@@ -284,7 +284,7 @@ def seed_demo_data(db, users: dict[str, User], exp: Experiment) -> None:
     if db.query(Meeting).filter(Meeting.meeting_id == "meet_seed_completed").first():
         return
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # === 已完成实验链：60℃ -> 65℃，部分支持 ===
     m1 = _make_meeting(
@@ -384,6 +384,20 @@ def main() -> None:
         )
         seed_demo_data(db, users, exp)
         db.commit()
+
+        # 演示数据初始化后全量重建 RAG 索引
+        try:
+            from app.db import vec
+            from app.config import settings
+            from app.services.indexer import reindex_all
+            vec.ensure_vec_tables(db, settings.QWEN_EMBEDDING_DIM)
+            stats = reindex_all(db)
+            db.commit()
+            print(f"✓ RAG 索引已重建：claims={stats['claims']} results={stats['results']} "
+                  f"evidence={stats['evidence']} boundaries={stats['boundaries']}")
+        except Exception as e:
+            print(f"⚠ RAG 索引重建失败（不阻断 seed）：{e}")
+
         print("✓ 演示数据已初始化")
         print("  账号: pi / lead / executor / admin（密码均为 123456）")
         print("  项目: PROJ-DEMO-001")

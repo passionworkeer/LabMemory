@@ -1,7 +1,7 @@
 """任务与行动前审计。"""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -50,7 +50,7 @@ def run_audit(task_id: str, db: Session = Depends(get_db), user: User = Depends(
     checks = _run_checks(t, exp, db)
     audit.status = checks["overall"]
     audit.auditor_id = user.id
-    audit.audited_at = datetime.utcnow()
+    audit.audited_at = datetime.now(timezone.utc)
     audit.checks = checks["items"]
     audit.result = {
         "overall": checks["overall"],
@@ -91,7 +91,7 @@ def approve_task(
         raise StateTransitionError(f"任务已 {t.status}，不可审批")
     t.approval_status = "approved"
     t.approved_by = user.id
-    t.approved_at = datetime.utcnow()
+    t.approved_at = datetime.now(timezone.utc)
     t.approval_note = payload.note
     db.add(AuditEvent(
         actor_id=user.id, action="task.approved",
@@ -118,7 +118,7 @@ def reject_task(
         raise StateTransitionError(f"任务已进入执行（{t.status}），不可拒绝审批")
     t.approval_status = "rejected"
     t.approved_by = user.id
-    t.approved_at = datetime.utcnow()
+    t.approved_at = datetime.now(timezone.utc)
     t.approval_note = payload.note
     t.status = "blocked"
     db.add(AuditEvent(

@@ -62,6 +62,8 @@ feishu-orchestrator/feishu-orchestrator/logs/
 *.jsonl
 
 # labmemory-platform：运行时 SQLite 数据库与前端本地日志
-labmemory-platform/data/labmemory.db
+labmemory-platform/data/*.db
 labmemory-platform/data/*.db-journal
+labmemory-platform/data/*.db-wal
+labmemory-platform/data/*.db-shm
 labmemory-platform/frontend/*.log

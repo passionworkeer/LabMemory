@@ -1,20 +1,35 @@
 """Pydantic schemas（请求/响应）。"""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
+
+
+class LabMemoryBase(BaseModel):
+    """所有响应 schema 的基类。
+
+    序列化时自动把 naive datetime 升级为 UTC-aware（补 +00:00 后缀），
+    规避 SQLAlchemy SQLite 后端存储 datetime 时剥离 tzinfo 的问题，
+    同时让历史 naive 数据也能被前端正确识别为 UTC。
+    """
+
+    @field_serializer('*', check_fields=False)
+    def _upgrade_naive_datetime(self, value: Any) -> Any:
+        if isinstance(value, datetime) and value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
 
 
 # === Auth ===
 
-class LoginIn(BaseModel):
+class LoginIn(LabMemoryBase):
     username: str
     password: str
 
 
-class UserOut(BaseModel):
+class UserOut(LabMemoryBase):
     id: int
     username: str
     display_name: str
@@ -22,7 +37,7 @@ class UserOut(BaseModel):
     feishu_user_id: str | None = None
 
 
-class LoginOut(BaseModel):
+class LoginOut(LabMemoryBase):
     access_token: str
     token_type: Literal["bearer"] = "bearer"
     user: UserOut
@@ -30,12 +45,12 @@ class LoginOut(BaseModel):
 
 # === Experiment management (PI only) ===
 
-class ExperimentMemberIn(BaseModel):
+class ExperimentMemberIn(LabMemoryBase):
     username: str
     role: Literal["pi", "lead", "executor"]
 
 
-class ExperimentMemberOut(BaseModel):
+class ExperimentMemberOut(LabMemoryBase):
     id: int
     user_id: int
     username: str
@@ -46,7 +61,7 @@ class ExperimentMemberOut(BaseModel):
         from_attributes = True
 
 
-class ExperimentIn(BaseModel):
+class ExperimentIn(LabMemoryBase):
     experiment_id: str = Field(..., description="实验编号，跨数据链路唯一跟踪")
     project_id: str
     name: str
@@ -54,7 +69,7 @@ class ExperimentIn(BaseModel):
     parameters_template: dict[str, Any] | None = None
 
 
-class ExperimentOut(BaseModel):
+class ExperimentOut(LabMemoryBase):
     id: int
     experiment_id: str
     project_id: str
@@ -68,7 +83,7 @@ class ExperimentOut(BaseModel):
         from_attributes = True
 
 
-class ProjectOut(BaseModel):
+class ProjectOut(LabMemoryBase):
     id: int
     project_id: str
     name: str
@@ -78,7 +93,7 @@ class ProjectOut(BaseModel):
 
 # === Meeting intake ===
 
-class MeetingPackageIn(BaseModel):
+class MeetingPackageIn(LabMemoryBase):
     """对接 feishu-orchestrator 的 MeetingPackage 契约。"""
     schema_version: str = "1.0.0"
     source: str = "feishu_minutes"
@@ -95,7 +110,7 @@ class MeetingPackageIn(BaseModel):
     metadata: dict = {}
 
 
-class CandidatePackageIn(BaseModel):
+class CandidatePackageIn(LabMemoryBase):
     """对接 feishu-orchestrator 的 CandidatePackage 契约。"""
     schema_version: str = "1.0.0"
     source_package_id: str
@@ -143,7 +158,7 @@ class TaskStatusIn(BaseModel):
 
 # === Meeting review ===
 
-class ReviewConfirmIn(BaseModel):
+class ReviewConfirmIn(LabMemoryBase):
     # confirmed=直接确认或修改后确认；ended=结束，不进入数据链路
     decision: Literal["confirmed", "ended"]
     # 修改后的参数或其他内容（用于生成主张）
@@ -153,7 +168,7 @@ class ReviewConfirmIn(BaseModel):
     reason: str | None = None
 
 
-class MeetingReviewOut(BaseModel):
+class MeetingReviewOut(LabMemoryBase):
     id: int
     meeting_id: str
     experiment_id: str
@@ -167,7 +182,7 @@ class MeetingReviewOut(BaseModel):
 
 # === Action audit ===
 
-class ActionAuditOut(BaseModel):
+class ActionAuditOut(LabMemoryBase):
     id: int
     task_id: str
     status: str  # pending / passed / blocked / needs_confirmation
@@ -179,7 +194,7 @@ class ActionAuditOut(BaseModel):
 
 # === Task ===
 
-class TaskOut(BaseModel):
+class TaskOut(LabMemoryBase):
     id: int
     task_id: str
     meeting_id: str
@@ -198,16 +213,16 @@ class TaskOut(BaseModel):
     failure_boundary_ack: bool = False
 
 
-class TaskStartIn(BaseModel):
+class TaskStartIn(LabMemoryBase):
     assignee_username: str | None = None
     due_date: datetime | None = None
 
 
-class TaskApproveIn(BaseModel):
+class TaskApproveIn(LabMemoryBase):
     note: str | None = None
 
 
-class TaskResourcesIn(BaseModel):
+class TaskResourcesIn(LabMemoryBase):
     """资源补充：物料/设备/排期/备注。提交即标记 resource_status=ready。"""
     materials: list[dict] = []
     equipment: list[dict] = []
@@ -218,7 +233,7 @@ class TaskResourcesIn(BaseModel):
 
 # === Result ===
 
-class ResultSubmitIn(BaseModel):
+class ResultSubmitIn(LabMemoryBase):
     actual_params: dict[str, Any] | None = None
     metrics: dict[str, Any] | None = None
     files: list[dict] | None = None
@@ -232,7 +247,7 @@ class ResultPublishIn(BaseModel):
     model_feedback: dict[str, Any] | None = None
 
 
-class ResultOut(BaseModel):
+class ResultOut(LabMemoryBase):
     id: int
     result_id: str
     task_id: str
@@ -252,7 +267,7 @@ class ResultOut(BaseModel):
 
 # === Control Tower ===
 
-class ControlTowerOut(BaseModel):
+class ControlTowerOut(LabMemoryBase):
     pending_reviews: int
     blocked_tasks: int
     anomalies: int
@@ -263,7 +278,7 @@ class ControlTowerOut(BaseModel):
 
 # === Pre-meeting Brief ===
 
-class ExperimentBrief(BaseModel):
+class ExperimentBrief(LabMemoryBase):
     experiment_id: str
     project_id: str
     name: str
@@ -278,7 +293,7 @@ class ExperimentBrief(BaseModel):
 
 # === Action Audit Compare ===
 
-class AuditCompareOut(BaseModel):
+class AuditCompareOut(LabMemoryBase):
     task_id: str
     meeting_id: str
     experiment_id: str
@@ -293,21 +308,34 @@ class AuditCompareOut(BaseModel):
 
 # === Trusted QA ===
 
-class QAAskIn(BaseModel):
+class QAAskIn(LabMemoryBase):
     question: str
 
 
-class QAAnswerOut(BaseModel):
+class QACitationOut(LabMemoryBase):
+    ref: str
+    type: str
+    ref_id: str
+    title: str
+    knowledge_status: str | None = None
+    url: str | None = None
+    metadata: dict = {}
+
+
+class QAAnswerOut(LabMemoryBase):
     question: str
     answer: str
     citations: list[dict] = []
     retrieval_scope: dict = {}
+    retrieval_details: dict = {}
+    model_info: dict = {}
+    missing_conditions: list[str] = []
     refused: bool = False
 
 
 # === Audit Event (timeline) ===
 
-class AuditEventOut(BaseModel):
+class AuditEventOut(LabMemoryBase):
     id: int
     actor_id: int | None = None
     action: str
@@ -319,7 +347,7 @@ class AuditEventOut(BaseModel):
     created_at: datetime
 
 
-class CandidateOut(BaseModel):
+class CandidateOut(LabMemoryBase):
     """Aily 候选对象（来自 CandidatePackage.candidates）。"""
     candidate_id: str
     type: str
@@ -333,7 +361,7 @@ class CandidateOut(BaseModel):
     needs_review: bool | None = None
 
 
-class MeetingDetailOut(BaseModel):
+class MeetingDetailOut(LabMemoryBase):
     """会议详情：含逐字稿 + 候选对象 + 复核 + 主张 + 任务 + 审计 + 结果。"""
     meeting_id: str
     experiment_id: str
@@ -358,7 +386,7 @@ class MeetingDetailOut(BaseModel):
 
 # === Claim ===
 
-class ClaimOut(BaseModel):
+class ClaimOut(LabMemoryBase):
     id: int
     claim_id: str
     meeting_id: str
@@ -372,7 +400,7 @@ class ClaimOut(BaseModel):
 
 # === Passport ===
 
-class MeetingChainItem(BaseModel):
+class MeetingChainItem(LabMemoryBase):
     """单次会议的完整数据链：复核 -> 主张 -> 任务 -> 审计 -> 结果。"""
     meeting_id: str
     experiment_id: str = ""
@@ -388,7 +416,7 @@ class MeetingChainItem(BaseModel):
     summary: str | None = None
 
 
-class TimelineEvent(BaseModel):
+class TimelineEvent(LabMemoryBase):
     """实验统一时间线事件。"""
     timestamp: datetime
     event_type: str
@@ -399,7 +427,7 @@ class TimelineEvent(BaseModel):
     details: dict | None = None
 
 
-class ExperimentPassport(BaseModel):
+class ExperimentPassport(LabMemoryBase):
     experiment_id: str
     project_id: str
     name: str
@@ -411,7 +439,7 @@ class ExperimentPassport(BaseModel):
     timeline: list[TimelineEvent] = []
 
 
-class PassportClaimSummary(BaseModel):
+class PassportClaimSummary(LabMemoryBase):
     """护照列表中的当前主张摘要（轻量版 ClaimOut）。"""
     claim_id: str
     status: str
@@ -419,7 +447,7 @@ class PassportClaimSummary(BaseModel):
     parameter_version: dict | None = None
 
 
-class PassportSummaryOut(BaseModel):
+class PassportSummaryOut(LabMemoryBase):
     """实验护照列表项：实验基本信息 + 数据链概览统计。"""
     experiment_id: str
     project_id: str

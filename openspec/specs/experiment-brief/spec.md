@@ -1,7 +1,7 @@
 # experiment-brief Specification
 
 ## Purpose
-TBD - created by archiving change add-experiment-brief-and-decision-qa-specs. Update Purpose after archive.
+会前研讨包：按实验维度在会议前组装当前上下文（当前主张、上一轮已发布结果、失败边界聚合、当前目标），让实验成员在进入会议前快速掌握实验状态。
 ## Requirements
 ### Requirement: 简报访问权限
 系统 SHALL 校验请求者对实验简报的访问权限：`admin` / `pi` 角色可访问任意实验；其他角色 MUST 为该实验的成员，否则返回无权错误。

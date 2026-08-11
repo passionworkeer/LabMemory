@@ -137,10 +137,9 @@ export default function PassportList() {
                   color={e.pending_review_count > 0 ? "var(--amber)" : "var(--muted)"}
                 />
                 <PassportStat
-                  value={e.task_count}
-                  label="任务"
+                  value={e.blocked_task_count}
+                  label="阻断"
                   color={e.blocked_task_count > 0 ? "var(--red)" : "var(--muted)"}
-                  sub={e.blocked_task_count > 0 ? `${e.blocked_task_count} 阻断` : undefined}
                 />
                 <PassportStat value={e.published_result_count} label="已发布知识" color="var(--green)" />
               </div>

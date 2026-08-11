@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header
 from sqlalchemy.orm import Session
@@ -190,7 +190,7 @@ def confirm_review(
     r.status = "processed"
     r.decision = payload.decision
     r.reviewer_id = user.id
-    r.reviewed_at = datetime.utcnow()
+    r.reviewed_at = datetime.now(timezone.utc)
     r.modifications = payload.modifications
     r.notes = payload.notes
 
@@ -239,6 +239,16 @@ def confirm_review(
         reason=(payload.reason or payload.notes or ""),
     ))
     db.commit()
+
+    # 索引新生成的 Claim 与会议证据片段，供可信问答检索
+    try:
+        from app.services.indexer import index_claim, index_meeting
+        index_claim(db, claim)
+        index_meeting(db, m)
+        db.commit()
+    except Exception:
+        pass
+
     return _chain_item(db, m, r)
 
 
@@ -337,7 +347,7 @@ def _build_claim(
     parameter_version = {
         "parameters": versioned_params,
         "version": f"v{max_v}",  # 顶层取最大，向后兼容
-        "effective_at": datetime.utcnow().isoformat(),
+        "effective_at": datetime.now(timezone.utc).isoformat(),
         "scope": (modifications or {}).get("scope") or (content.get("scope") if modifications else None),
     }
 

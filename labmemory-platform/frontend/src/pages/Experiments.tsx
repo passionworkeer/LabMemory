@@ -55,79 +55,78 @@ export default function Experiments() {
 
   return (
     <div className="fade-in">
-      <div className="flex justify-between items-center mb-4">
-        <span className="text-sm muted">管理实验项目、成员与权限。仅 PI 可操作。</span>
-        <button className="btn primary" onClick={() => setShowCreate(!showCreate)}>
-          {showCreate ? "取消" : "+ 创建实验"}
-        </button>
-      </div>
-
       {err && <div className="text-red-500 text-sm mb-3">{err}</div>}
-
-      {showCreate && (
-        <div className="card mb-5">
-          <div className="section-title">
-            <b>新建实验</b>
-            <span className="section-meta">填写实验身份与负责人</span>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="field">
-              <label className="field-label">实验编号 <span className="req">*</span></label>
-              <input
-                className="input mono"
-                value={newExp.experiment_id}
-                onChange={(e) => setNewExp({ ...newExp, experiment_id: e.target.value })}
-                placeholder="EXP-XXX-001"
-              />
-              <span className="field-hint">建议格式：EXP-{`<团队>`}-{`<序号>`}</span>
-            </div>
-            <div className="field">
-              <label className="field-label">所属项目</label>
-              <select
-                className="input"
-                value={newExp.project_id}
-                onChange={(e) => setNewExp({ ...newExp, project_id: e.target.value })}
-              >
-                <option value="">选择项目</option>
-                {projects.map((p) => (
-                  <option key={p.project_id} value={p.project_id}>
-                    {p.project_id} - {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field">
-              <label className="field-label">实验名称</label>
-              <input
-                className="input"
-                value={newExp.name}
-                onChange={(e) => setNewExp({ ...newExp, name: e.target.value })}
-                placeholder="如：催化剂用量优化 - 第 3 轮"
-              />
-            </div>
-            <div className="field">
-              <label className="field-label">负责人用户名</label>
-              <input
-                className="input mono"
-                value={newExp.owner_username}
-                onChange={(e) => setNewExp({ ...newExp, owner_username: e.target.value })}
-                placeholder="lead"
-              />
-            </div>
-          </div>
-          <div className="mt-4 flex justify-end">
-            <button className="btn success" onClick={create}>
-              创建实验
-            </button>
-          </div>
-        </div>
-      )}
 
       <div className="card mb-5">
         <div className="section-title">
           <b>实验列表</b>
-          <span className="section-meta">{experiments.length} 个实验</span>
+          <div className="flex items-center gap-3">
+            <span className="section-meta">{experiments.length} 个实验</span>
+            <button className="btn primary sm" onClick={() => setShowCreate(!showCreate)}>
+              {showCreate ? "取消" : "+ 创建实验"}
+            </button>
+          </div>
         </div>
+
+        {showCreate && (
+          <div className="mb-4 p-4 rounded-xl" style={{ background: "var(--line-light)" }}>
+            <div className="text-sm font-semibold mb-3 flex items-center gap-2">
+              <span className="badge-dot blue" />
+              新建实验
+              <span className="text-xs text-muted font-normal">填写实验身份与负责人</span>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="field">
+                <label className="field-label">实验编号 <span className="req">*</span></label>
+                <input
+                  className="input mono"
+                  value={newExp.experiment_id}
+                  onChange={(e) => setNewExp({ ...newExp, experiment_id: e.target.value })}
+                  placeholder="EXP-XXX-001"
+                />
+                <span className="field-hint">建议格式：EXP-{`<团队>`}-{`<序号>`}</span>
+              </div>
+              <div className="field">
+                <label className="field-label">所属项目</label>
+                <select
+                  className="input"
+                  value={newExp.project_id}
+                  onChange={(e) => setNewExp({ ...newExp, project_id: e.target.value })}
+                >
+                  <option value="">选择项目</option>
+                  {projects.map((p) => (
+                    <option key={p.project_id} value={p.project_id}>
+                      {p.project_id} - {p.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label className="field-label">实验名称</label>
+                <input
+                  className="input"
+                  value={newExp.name}
+                  onChange={(e) => setNewExp({ ...newExp, name: e.target.value })}
+                  placeholder="如：催化剂用量优化 - 第 3 轮"
+                />
+              </div>
+              <div className="field">
+                <label className="field-label">负责人用户名</label>
+                <input
+                  className="input mono"
+                  value={newExp.owner_username}
+                  onChange={(e) => setNewExp({ ...newExp, owner_username: e.target.value })}
+                  placeholder="lead"
+                />
+              </div>
+            </div>
+            <div className="mt-4 flex justify-end">
+              <button className="btn success" onClick={create}>
+                创建实验
+              </button>
+            </div>
+          </div>
+        )}
         <table>
           <thead>
             <tr>
@@ -146,7 +145,7 @@ export default function Experiments() {
                   <div className="empty-state">
                     <div className="empty-icon">🧪</div>
                     <div className="empty-title">暂无实验</div>
-                    <div className="empty-desc">点击右上角"创建实验"开始第一个项目。</div>
+                    <div className="empty-desc">点击上方「创建实验」开始第一个项目。</div>
                   </div>
                 </td>
               </tr>

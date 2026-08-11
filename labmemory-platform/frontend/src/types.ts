@@ -257,11 +257,44 @@ export interface AuditCompareOut {
   audit?: ActionAuditOut | null;
 }
 
+export interface QACitation {
+  ref: string;
+  type: "claim" | "result" | "evidence" | "failure_boundary";
+  ref_id: string;
+  title: string;
+  knowledge_status?: string | null;
+  url?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface QARetrievalDetails {
+  permission_filtered_experiments?: number;
+  status_filtered_chunks?: number;
+  bm25_hits?: number;
+  vector_hits?: number;
+  after_relation_expansion?: number;
+  after_rerank?: number;
+  top_score?: number;
+  score_breakdown?: Record<string, number>;
+  elapsed_sec?: number;
+}
+
+export interface QAModelInfo {
+  embedding_mode?: string;
+  embedding_model?: string;
+  chat_mode?: string;
+  chat_model?: string;
+  top_k?: number;
+}
+
 export interface QAAnswerOut {
   question: string;
   answer: string;
-  citations: { type: string; id?: string; knowledge_status?: string; metrics?: unknown; speaker?: string; text?: string }[];
+  citations: QACitation[];
   retrieval_scope: Record<string, unknown>;
+  retrieval_details?: QARetrievalDetails;
+  model_info?: QAModelInfo;
+  missing_conditions?: string[];
   refused: boolean;
 }
 

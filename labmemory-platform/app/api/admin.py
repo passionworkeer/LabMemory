@@ -61,6 +61,17 @@ def reset_demo_data(
     db.query(AuditEvent).delete()
     db.flush()
 
+    # 清空 RAG 索引（业务数据已清，索引也应清空）
+    try:
+        from app.db.models import EmbeddingChunk
+        db.query(EmbeddingChunk).delete()
+        conn = db.connection().connection
+        conn.execute("DELETE FROM vec_chunks")
+        conn.execute("DELETE FROM chunks_fts")
+        conn.commit()
+    except Exception:
+        pass
+
     if mode == "clear":
         db.commit()
         return {"status": "ok", "mode": mode, "message": "已清除所有业务数据"}
@@ -79,6 +90,15 @@ def reset_demo_data(
         _seed_full_chain(db, exp, user)
 
     db.commit()
+
+    # 重置后全量重建 RAG 索引
+    try:
+        from app.services.indexer import reindex_all
+        reindex_all(db)
+        db.commit()
+    except Exception:
+        pass
+
     return {"status": "ok", "mode": mode, "message": f"演示数据已重置（{mode} 模式）"}
 
 
@@ -87,7 +107,7 @@ def _seed_pending_only(db: Session, exp: Experiment, actor: User) -> None:
 
     这些会议后续需要用户在前端手动确认，才能推进链路。
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     scenarios = [
         {
@@ -232,7 +252,7 @@ def _seed_pending_only(db: Session, exp: Experiment, actor: User) -> None:
             risks=[],
             action_items=[],
             open_questions=[],
-            compiled_at=datetime.utcnow(),
+            compiled_at=datetime.now(timezone.utc),
             raw_payload={},
         )
         db.add(cand)
@@ -265,7 +285,7 @@ def _seed_full_chain(db: Session, exp: Experiment, actor: User) -> None:
     if not lead or not executor:
         raise HTTPException(status_code=400, detail="缺少 lead / executor 角色用户")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     # 场景 1：已完成实验链
     m1 = _make_meeting(

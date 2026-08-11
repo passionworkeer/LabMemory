@@ -1,7 +1,7 @@
 """结果回流。"""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
@@ -118,7 +118,7 @@ def publish_result(
 
     res.status = "published"
     res.publisher_id = user.id
-    res.published_at = datetime.utcnow()
+    res.published_at = datetime.now(timezone.utc)
     res.knowledge_status = payload.knowledge_status
     res.notes = payload.notes or res.notes
     if payload.failure_boundary:
@@ -143,6 +143,23 @@ def publish_result(
     ))
     db.commit()
     db.refresh(res)
+
+    # 索引新发布的结果与失败边界，供可信问答检索
+    try:
+        from app.services.indexer import index_failure_boundary, index_result
+        index_result(db, res)
+        index_failure_boundary(db, res)
+        # 若关联主张知识状态变化，重新索引该主张
+        if t and t.claim_id:
+            from app.db.models import Claim
+            claim = db.get(Claim, t.claim_id)
+            if claim and claim.status == "current":
+                from app.services.indexer import index_claim
+                index_claim(db, claim)
+        db.commit()
+    except Exception:
+        pass
+
     return _result_out(res, t.task_id if t else "", t.planned_params if t else None)
 
 

@@ -226,3 +226,27 @@ class AuditEvent(Base, IDMixin, TimestampMixin):
     after: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     request_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+
+
+# === 可信问答 RAG 索引 ===
+
+class EmbeddingChunk(Base, IDMixin, TimestampMixin):
+    """RAG 检索切片：claim / result / evidence / failure_boundary。
+
+    向量本身存于 vec_chunks 虚拟表（rowid=chunk_id），FTS5 索引存于 chunks_fts 虚拟表。
+    本表保存切片元数据与组装后的 content_text，供权限过滤、关系扩展与引用回显使用。
+    """
+    __tablename__ = "embedding_chunks"
+
+    chunk_id: Mapped[str] = mapped_column(String(128), unique=True, index=True, nullable=False)
+    chunk_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    ref_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    experiment_id: Mapped[int] = mapped_column(ForeignKey("experiments.id"), nullable=False, index=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), nullable=False, index=True)
+    # 'current' / 'superseded' (claim) / 'published' / 'frozen' (result) / 'active' (evidence/boundary)
+    status: Mapped[str] = mapped_column(String(32), default="current", nullable=False, index=True)
+    knowledge_status: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    content_text: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    embedding_model: Mapped[str] = mapped_column(String(64), default="hash-fallback", nullable=False)

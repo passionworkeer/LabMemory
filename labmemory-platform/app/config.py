@@ -43,6 +43,28 @@ class Settings(BaseSettings):
     FEISHU_ORCHESTRATOR_BASE_URL: str = "http://localhost:8080"
     FEISHU_ORCHESTRATOR_MODE: str = "mock"
 
+    # === 可信知识问答 RAG 配置 ===
+    # Qwen 嵌入（DashScope API）。未配置 key 时降级到 hash 伪向量。
+    QWEN_API_KEY: str = ""
+    QWEN_EMBEDDING_MODEL: str = "text-embedding-v3"
+    QWEN_EMBEDDING_DIM: int = 1024
+    QWEN_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+    # DeepSeek 对话（兼容 OpenAI SDK）。未配置 key 或 RAG_ENABLE_LLM=false 时降级到模板。
+    DEEPSEEK_API_KEY: str = ""
+    DEEPSEEK_CHAT_MODEL: str = "deepseek-chat"
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
+    RAG_ENABLE_LLM: bool = True
+
+    # RAG 检索参数
+    RAG_TOP_K: int = 5
+    RAG_MIN_SCORE: float = 0.25
+    RAG_RECALL_TOP: int = 20
+    RAG_BM25_WEIGHT: float = 0.35
+    RAG_VECTOR_WEIGHT: float = 0.35
+    RAG_RECENCY_WEIGHT: float = 0.15
+    RAG_STATUS_WEIGHT: float = 0.15
+
     PROJECT_ROOT: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[1])
 
     @property
