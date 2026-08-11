@@ -74,6 +74,16 @@ def ensure_experiment_member(db: Session, experiment_id: int, user: User) -> Exp
     return m
 
 
+def visible_experiment_ids(db: Session, user: User) -> set[int] | None:
+    """返回用户可见的 experiment_id 集合；None 表示全局可见（admin）。"""
+    if user.global_role == "admin":
+        return None
+    rows = db.query(ExperimentMember.experiment_id).filter(
+        ExperimentMember.user_id == user.id
+    ).all()
+    return {r[0] for r in rows}
+
+
 def verify_platform_api_key(
     authorization: str | None = Header(default=None),
     x_platform_api_key: str | None = Header(default=None),
@@ -85,14 +95,16 @@ def verify_platform_api_key(
     """
     from app.config import settings
     from app.core.errors import PermissionDeniedError
+    from hmac import compare_digest
 
     bearer: str | None = None
     if authorization and authorization.lower().startswith("bearer "):
         bearer = authorization.split(" ", 1)[1].strip()
 
-    if settings.PLATFORM_API_KEY and (
-        bearer == settings.PLATFORM_API_KEY
-        or x_platform_api_key == settings.PLATFORM_API_KEY
+    expected = settings.PLATFORM_API_KEY
+    if expected and (
+        (bearer is not None and compare_digest(bearer, expected))
+        or (x_platform_api_key is not None and compare_digest(x_platform_api_key, expected))
     ):
         return True
     raise PermissionDeniedError("无效的 PLATFORM_API_KEY")

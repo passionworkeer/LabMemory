@@ -62,9 +62,24 @@ class IdempotencyGuard:
         except Exception as e:
             print(f"[IdempotencyGuard] 写入失败: {e}")
 
+    def acquire(self, idempotency_key: str) -> bool:
+        """原子抢占处理权（O_CREAT|O_EXCL）。成功=True（创建占位文件，获得执行权）；False=已被占/已处理。
+
+        消除 check→业务→mark 三步 TOCTOU：调用方在执行业务副作用前 acquire，
+        失败说明另一并发/重试已占，直接返回缓存或「处理中」。
+        """
+        import os
+        key_path = self._get_key_path(idempotency_key)
+        try:
+            fd = os.open(str(key_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.close(fd)
+            return True
+        except (FileExistsError, OSError):
+            return False
+
     def is_processed(self, idempotency_key: str) -> bool:
-        """简单判断是否已处理"""
-        return self.check(idempotency_key) is not None
+        """简单判断是否已处理（占位文件存在即视为已处理/处理中）。"""
+        return self._get_key_path(idempotency_key).exists()
 
     def cleanup_expired(self):
         """清理过期的幂等记录"""

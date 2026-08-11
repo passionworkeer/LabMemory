@@ -171,7 +171,7 @@ def demo_event_driven_flow():
         "open_id": reviewer_id,
         "action": {
             "value": {
-                "action_type": "approved",
+                "action_type": "approve",
                 "candidate_id": first_candidate["candidate_id"],
             }
         }

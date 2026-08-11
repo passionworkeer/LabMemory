@@ -39,6 +39,8 @@ class Config:
     # LabMemory 平台
     PLATFORM_API_BASE = os.getenv("PLATFORM_API_BASE", "https://labmemory.example.com/api")
     PLATFORM_API_KEY = os.getenv("PLATFORM_API_KEY", "")
+    # 默认实验 ID（会议归属；生产应按会议→实验映射解析，此处默认演示实验）
+    EXPERIMENT_ID = os.getenv("LABMEMORY_EXPERIMENT_ID", "EXP-DEMO-001")
 
     # 多维表格
     BASE_APP_TOKEN = os.getenv("BASE_APP_TOKEN", "")

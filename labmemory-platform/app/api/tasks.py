@@ -27,6 +27,7 @@ router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 @router.get("/{task_id}", response_model=TaskOut)
 def get_task(task_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     t = _get_task(db, task_id)
+    ensure_experiment_member(db, t.experiment_id, user)
     exp = db.get(Experiment, t.experiment_id)
     return _task_out(t, _meeting_id(db, t), exp.experiment_id if exp else "")
 
@@ -86,13 +87,12 @@ def approve_task(
     t = _get_task(db, task_id)
     exp = db.get(Experiment, t.experiment_id)
     ensure_experiment_member(db, exp.id, user)
+    if t.status in ("running", "completed"):
+        raise StateTransitionError(f"任务已 {t.status}，不可审批")
     t.approval_status = "approved"
     t.approved_by = user.id
     t.approved_at = datetime.utcnow()
     t.approval_note = payload.note
-    # 审批通过后回到 needs_confirmation 让用户重新审计（资源/失败边界可能仍未确认）
-    if t.status == "needs_confirmation":
-        t.status = "needs_confirmation"
     db.add(AuditEvent(
         actor_id=user.id, action="task.approved",
         target_type="task", target_id=t.task_id,
@@ -198,8 +198,8 @@ def start_task(task_id: str, payload: TaskStartIn, db: Session = Depends(get_db)
     audit = db.query(ActionAudit).filter(ActionAudit.task_id == t.id).first()
     if audit is None or audit.status != "passed":
         raise StateTransitionError("审计未通过，不能启动任务")
-    if t.status not in ("audited", "running"):
-        raise StateTransitionError(f"任务状态 {t.status} 不可启动")
+    if t.status != "audited":
+        raise StateTransitionError(f"任务状态 {t.status} 不可启动（仅 audited 可启动；running 不可重复启动）")
     t.status = "running"
     if payload.assignee_username:
         assignee = db.query(User).filter(User.username == payload.assignee_username).first()
@@ -242,6 +242,7 @@ def complete_task(task_id: str, db: Session = Depends(get_db), user: User = Depe
 def get_audit_compare(task_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     """对比任务绑定的旧主张与实验当前主张，用于行动前审计阻断展示。"""
     t = _get_task(db, task_id)
+    ensure_experiment_member(db, t.experiment_id, user)
     exp = db.get(Experiment, t.experiment_id)
     mt = db.get(Meeting, t.meeting_id)
     old_claim = db.get(Claim, t.claim_id) if t.claim_id else None
@@ -300,6 +301,14 @@ def audit_fix(task_id: str, db: Session = Depends(get_db), user: User = Depends(
         raise StateTransitionError("实验当前无有效主张，无法修正")
     if t.claim_id == current_claim.id:
         raise StateTransitionError("任务已绑定当前主张，无需修正")
+    # 重复修正守卫：同一会议已有一键修正生成的新任务则不重复
+    existing_fix = db.query(Task).filter(
+        Task.meeting_id == t.meeting_id,
+        Task.claim_id == current_claim.id,
+        Task.status != "blocked",
+    ).first()
+    if existing_fix:
+        raise StateTransitionError(f"该任务已一键修正为新任务 {existing_fix.task_id}，无需重复修正")
     # 旧任务标记 blocked（保留历史）
     t.status = "blocked"
     # 新任务：同一会议，但绑定当前主张
@@ -402,7 +411,10 @@ def _run_checks(t: Task, exp: Experiment, db: Session) -> dict:
     if task_claim is None:
         items["version_unit"] = {"status": "blocked", "reason": "任务未绑定主张"}
         reasons.append("版本门：任务未绑定主张")
-    elif current_claim and task_claim.id != current_claim.id:
+    elif current_claim is None:
+        items["version_unit"] = {"status": "blocked", "reason": "实验当前无有效（current）主张"}
+        reasons.append("版本门：实验当前无 current 主张")
+    elif task_claim.id != current_claim.id:
         items["version_unit"] = {
             "status": "blocked",
             "reason": f"任务引用 {task_claim.claim_id}({task_claim.status})；当前有效为 {current_claim.claim_id}",

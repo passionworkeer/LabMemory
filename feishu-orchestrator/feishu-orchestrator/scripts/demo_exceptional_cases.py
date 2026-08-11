@@ -105,7 +105,7 @@ def demo_duplicate_callbacks():
         "open_id": "user_test",
         "action": {
             "value": {
-                "action_type": "approved",
+                "action_type": "approve",
                 "candidate_id": candidate["candidate_id"],
             }
         }
@@ -120,7 +120,7 @@ def demo_duplicate_callbacks():
         "open_id": "user_test",
         "action": {
             "value": {
-                "action_type": "approved",
+                "action_type": "approve",
                 "candidate_id": candidate["candidate_id"],
             }
         }

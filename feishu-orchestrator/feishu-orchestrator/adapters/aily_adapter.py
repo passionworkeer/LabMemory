@@ -250,11 +250,9 @@ class AilyAdapter:
             if not cand.get("evidence"):
                 cand["evidence"] = []
 
-            if not cand.get("status"):
-                cand["status"] = "candidate"
-
-            if "needs_review" not in cand:
-                cand["needs_review"] = True
+            # 无条件强制候选边界：Aily 只能产候选，防 status=approved/needs_review=False 越权发布
+            cand["status"] = "candidate"
+            cand["needs_review"] = True
 
             # 校验参数格式
             params = cand.get("parameters", [])

@@ -10,7 +10,7 @@ from typing import Optional
 from core.config import Config
 from core.utils import now_iso, generate_id
 from reliability.integration_log import integration_log
-from reliability.retry_engine import with_retry
+from reliability.retry_engine import with_retry, RetryableError, NonRetryableError
 
 
 class PlatformClient:
@@ -149,7 +149,17 @@ class PlatformClient:
             return self._mock_get_candidate(candidate_id)
         return self._real_get_candidate(candidate_id)
 
+    def submit_meeting(self, meeting_package: dict) -> dict:
+        """提交会议包到平台（POST /v1/meetings），使平台能按 source_package_id 反查会议。"""
+        if self.mock_mode:
+            return self._mock_submit_meeting(meeting_package)
+        return self._real_submit_meeting(meeting_package)
+
     # ==================== Mock 实现 ====================
+
+    def _mock_submit_meeting(self, meeting_package: dict) -> dict:
+        """Mock 提交会议包"""
+        return {"meeting_id": meeting_package.get("meeting_id"), "created": True}
 
     def _mock_submit_candidates(self, candidate_package: dict) -> dict:
         """Mock 提交候选"""
@@ -186,10 +196,10 @@ class PlatformClient:
         action_type = action.get("action_type", "")
         candidate_id = action.get("candidate_id", "")
 
-        # 统一处理：approve / approved 都算通过
-        is_approved = action_type in ("approve", "approved")
-        is_rejected = action_type in ("reject", "rejected")
-        is_revise = action_type in ("revise", "pending_revision")
+        # 卡片动作类型统一为 approve/revise/reject（对齐平台 Literal，删过去式别名）
+        is_approved = action_type == "approve"
+        is_rejected = action_type == "reject"
+        is_revise = action_type == "revise"
 
         if is_approved:
             # 更新内存状态
@@ -247,6 +257,11 @@ class PlatformClient:
 
     # ==================== 真实实现 ====================
 
+    def _real_submit_meeting(self, meeting_package: dict) -> dict:
+        """真实提交会议包到平台"""
+        url = f"{self.api_base}/v1/meetings"
+        return self._http_post(url, meeting_package)
+
     def _real_submit_candidates(self, candidate_package: dict) -> dict:
         """真实提交候选到平台"""
         url = f"{self.api_base}/v1/candidates"
@@ -291,9 +306,13 @@ class PlatformClient:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8", errors="ignore")
-            raise Exception(f"HTTP {e.code}: {error_body}")
+            msg = f"HTTP {e.code}: {error_body}"
+            # 按可恢复性分类：429/5xx 可重试，4xx 不可重试（保留 code，不靠字面串判定）
+            if e.code == 429 or 500 <= e.code < 600:
+                raise RetryableError(msg) from e
+            raise NonRetryableError(msg) from e
         except urllib.error.URLError as e:
-            raise Exception(f"连接失败: {e}")
+            raise RetryableError(f"连接失败: {e}") from e
 
     def _http_get(self, url: str) -> dict:
         """HTTP GET 请求"""
@@ -310,9 +329,13 @@ class PlatformClient:
                 return json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             error_body = e.read().decode("utf-8", errors="ignore")
-            raise Exception(f"HTTP {e.code}: {error_body}")
+            msg = f"HTTP {e.code}: {error_body}"
+            # 按可恢复性分类：429/5xx 可重试，4xx 不可重试（保留 code，不靠字面串判定）
+            if e.code == 429 or 500 <= e.code < 600:
+                raise RetryableError(msg) from e
+            raise NonRetryableError(msg) from e
         except urllib.error.URLError as e:
-            raise Exception(f"连接失败: {e}")
+            raise RetryableError(f"连接失败: {e}") from e
 
 
 # 单例

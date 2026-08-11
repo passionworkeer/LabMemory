@@ -1,11 +1,17 @@
 """应用配置 - 单一来源。"""
 from __future__ import annotations
 
+import logging
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_DEFAULT_SECRETS = {
+    "JWT_SECRET": "dev-jwt-secret-please-rotate",
+    "PLATFORM_API_KEY": "dev-platform-api-key-please-rotate",
+}
 
 
 class Settings(BaseSettings):
@@ -19,7 +25,8 @@ class Settings(BaseSettings):
     SERVER_HOST: str = "0.0.0.0"
     SERVER_PORT: int = 8081
     LOG_LEVEL: str = "INFO"
-    CORS_ORIGINS: str = "*"
+    # 默认本地开发白名单；禁 `*`+credentials 共存（main.py 兜底降级）
+    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:8081"
 
     # SQLite 默认；可在 .env 切换为 postgresql://...
     DATABASE_URL: str = "sqlite:///./data/labmemory.db"
@@ -45,6 +52,17 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> list[str]:
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+
+    @model_validator(mode="after")
+    def _warn_default_secrets(self) -> "Settings":
+        """默认密钥启动告警（不 crash，保 dev/test；生产必须覆盖）。"""
+        for key, default in _DEFAULT_SECRETS.items():
+            val = getattr(self, key)
+            if val == default:
+                logging.warning(
+                    "⚠️ %s 为代码默认值——生产部署 MUST 覆盖为强随机值，否则存在伪造/越权风险。", key,
+                )
+        return self
 
 
 @lru_cache

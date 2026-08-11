@@ -474,7 +474,7 @@ result = card_handler.handle_callback({
     "open_id": "user_xxx",
     "action": {
         "value": {
-            "action_type": "approved",
+            "action_type": "approve",
             "candidate_id": "cand_001",
         }
     }

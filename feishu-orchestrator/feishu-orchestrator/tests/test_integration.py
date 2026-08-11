@@ -203,7 +203,7 @@ class TestPlatformIntegration(unittest.TestCase):
             "token": "test_callback_approved",
             "action": {
                 "value": {
-                    "action_type": "approved",
+                    "action_type": "approve",
                     "candidate_id": first_candidate["candidate_id"],
                 }
             }
@@ -267,7 +267,7 @@ class TestCardHandler(unittest.TestCase):
             "open_id": "test_user",
             "action": {
                 "value": {
-                    "action_type": "approved",
+                    "action_type": "approve",
                     "candidate_id": first_candidate["candidate_id"],
                 }
             }
@@ -298,7 +298,7 @@ class TestCardHandler(unittest.TestCase):
             "token": "test_card_idem_001",
             "action": {
                 "value": {
-                    "action_type": "approved",
+                    "action_type": "approve",
                     "candidate_id": first_candidate["candidate_id"],
                 }
             }
@@ -493,12 +493,17 @@ class TestWebhookSignature(unittest.TestCase):
         )
 
     def test_mock_mode_skips_verification(self):
-        """mock 模式下跳过验签"""
+        """mock 模式下跳过验签（但限 localhost，防未设 RUN_MODE=real 暴露）"""
         original = Config.RUN_MODE
         Config.RUN_MODE = "mock"
         try:
             handler = WebhookHandler.__new__(WebhookHandler)
+            handler._send_json = lambda *a, **kw: None  # 裸 handler 无 requestline，stub 发送
+            handler.client_address = ("127.0.0.1", 0)
             self.assertTrue(handler._verify_request(b"{}", "webhook.event"))
+            # 非本地来源即使 mock 模式也拒绝
+            handler.client_address = ("10.0.0.5", 0)
+            self.assertFalse(handler._verify_request(b"{}", "webhook.event"))
         finally:
             Config.RUN_MODE = original
 

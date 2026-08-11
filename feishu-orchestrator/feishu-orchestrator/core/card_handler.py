@@ -51,29 +51,42 @@ class CardHandler:
             # 转发到平台
             platform_result = platform_client.forward_card_callback(callback_data)
 
+            # forward 成功 → 立即标记回调已受理（与后续建任务分离，防重试重复建任务）
+            if callback_token:
+                idempotency_guard.mark(idempotency_key, {"result": "forwarded", "platform_status": platform_result.get("status")})
+
             # 根据平台返回结果执行后续动作
             status = platform_result.get("status", "")
+            action_audit = platform_result.get("action_audit", "")
+            disposition = "needs_confirmation"
 
-            if status == "approved" and platform_result.get("action_audit") == "pass":
-                # 已批准，创建任务
+            if status == "approved" and action_audit == "pass":
+                # 已批准且审计通过，创建任务
                 self._handle_approved(candidate_id, platform_result, callback_data)
+                disposition = "approved"
             elif status == "rejected":
                 # 已驳回
                 self._handle_rejected(candidate_id, platform_result, callback_data)
+                disposition = "rejected"
             elif status == "blocked":
                 # 已阻断
                 self._handle_blocked(candidate_id, platform_result, callback_data)
-
-            # 标记幂等
-            if callback_token:
-                idempotency_guard.mark(idempotency_key, {"result": "processed"})
+                disposition = "blocked"
+            else:
+                # needs_confirmation / revise / 未知：不建任务，记阻断态，不静默 success
+                state_machine.set_state(
+                    f"candidate:{candidate_id}",
+                    MeetingState.BLOCKED,
+                    extra={"platform_result": platform_result},
+                )
+                disposition = "needs_confirmation"
 
             integration_log.log(
                 direction="inbound",
                 interface="card.callback",
                 input_data={"action_type": action_type, "candidate_id": candidate_id},
-                output_data=platform_result,
-                status="success"
+                output_data={**platform_result, "disposition": disposition},
+                status="success" if disposition == "approved" else "needs_confirmation",
             )
 
             return platform_result
@@ -97,11 +110,8 @@ class CardHandler:
             extra={"platform_result": platform_result}
         )
 
-        # 获取候选详情
-        try:
-            candidate = platform_client.get_candidate(candidate_id)
-        except Exception:
-            candidate = {"candidate_id": candidate_id, "title": "已批准的候选"}
+        # 获取候选详情（失败则不建任务，避免用空壳建出残缺任务）
+        candidate = platform_client.get_candidate(candidate_id)
 
         # 创建任务
         try:

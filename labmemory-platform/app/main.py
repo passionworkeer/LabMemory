@@ -97,6 +97,7 @@ def _run_migrations() -> None:
                     resource_status VARCHAR(32) DEFAULT 'pending' NOT NULL,
                     resources JSON,
                     failure_boundary_ack BOOLEAN DEFAULT 0 NOT NULL,
+                    feishu_task_guid VARCHAR(128),
                     PRIMARY KEY (id),
                     FOREIGN KEY(meeting_id) REFERENCES meetings (id),
                     FOREIGN KEY(experiment_id) REFERENCES experiments (id),
@@ -105,7 +106,16 @@ def _run_migrations() -> None:
                     FOREIGN KEY(approved_by) REFERENCES users (id)
                 )
             """)
-            conn.exec_driver_sql("INSERT INTO tasks_new SELECT * FROM tasks")
+            conn.exec_driver_sql(
+                "INSERT INTO tasks_new (task_id, meeting_id, experiment_id, claim_id, status, "
+                "assignee_id, due_date, planned_params, id, created_at, updated_at, "
+                "approval_status, approved_by, approved_at, approval_note, "
+                "resource_status, resources, failure_boundary_ack, feishu_task_guid) "
+                "SELECT task_id, meeting_id, experiment_id, claim_id, status, "
+                "assignee_id, due_date, planned_params, id, created_at, updated_at, "
+                "approval_status, approved_by, approved_at, approval_note, "
+                "resource_status, resources, failure_boundary_ack, feishu_task_guid FROM tasks"
+            )
             conn.exec_driver_sql("DROP TABLE tasks")
             conn.exec_driver_sql("ALTER TABLE tasks_new RENAME TO tasks")
             conn.exec_driver_sql("CREATE UNIQUE INDEX ix_tasks_task_id ON tasks (task_id)")
@@ -126,10 +136,15 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_cors_origins = settings.cors_origins
+_cors_credentials = True
+if "*" in _cors_origins:
+    logger.warning("⚠️ CORS_ORIGINS 含通配 '*'，强制 allow_credentials=False（禁 *+credentials 共存）")
+    _cors_credentials = False
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_cors_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

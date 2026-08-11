@@ -29,6 +29,11 @@ class EventRouter:
         """
         event_type = event.get("type", event.get("event_type", "unknown"))
         event_id = event.get("event_id", event.get("uuid", ""))
+        # 空 event_id 时用 (event_type, hash(payload)) 兜底，避免重复推送无幂等保护
+        if not event_id:
+            import hashlib
+            payload_hash = hashlib.md5(str(event).encode()).hexdigest()[:16]
+            event_id = f"derived:{event_type}:{payload_hash}"
 
         # 记录入站日志
         integration_log.log(

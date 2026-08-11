@@ -97,9 +97,12 @@ def publish_result(
     if res.status == "frozen":
         raise StateTransitionError("结果已冻结，需先解决版本不匹配后再发布")
     t = db.get(Task, res.task_id)
-    exp = db.get(Experiment, t.experiment_id) if t else None
-    if exp:
-        ensure_experiment_member(db, exp.id, user)
+    if t is None:
+        raise NotFoundError(f"结果 {result_id} 关联任务不存在")
+    exp = db.get(Experiment, t.experiment_id)
+    if exp is None:
+        raise NotFoundError(f"结果关联实验不存在")
+    ensure_experiment_member(db, exp.id, user)
 
     res.status = "published"
     res.publisher_id = user.id

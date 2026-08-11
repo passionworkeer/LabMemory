@@ -15,6 +15,19 @@ from reliability.idempotency import idempotency_guard
 from reliability.integration_log import integration_log
 
 
+def _normalize_meeting_package(meeting_package: dict) -> dict:
+    """归一化 MeetingPackage：meeting_id 与 source_object_id 统一、metadata 含 experiment_id。
+
+    平台按 CandidatePackage.source_package_id == MeetingPackage.meeting_id 反查会议，
+    而 aily_adapter 以 source_object_id 作为 source_package_id，故三者必须一致。
+    """
+    if not meeting_package.get("meeting_id"):
+        meeting_package["meeting_id"] = meeting_package.get("source_object_id", "")
+    meeting_package.setdefault("metadata", {})
+    meeting_package["metadata"].setdefault("experiment_id", Config.EXPERIMENT_ID)
+    return meeting_package
+
+
 class PipelineOrchestrator:
     """主链路编排器"""
 
@@ -34,7 +47,7 @@ class PipelineOrchestrator:
             # Step 1: 获取妙记详情
             print("[Pipeline] Step 1: 获取妙记详情...")
             minutes_detail = minutes_adapter.get_by_url(minutes_url)
-            meeting_package = minutes_adapter.to_meeting_package(minutes_detail)
+            meeting_package = _normalize_meeting_package(minutes_adapter.to_meeting_package(minutes_detail))
 
             source_id = meeting_package["source_object_id"]
             meeting_title = meeting_package["title"]
@@ -55,6 +68,8 @@ class PipelineOrchestrator:
 
             # Step 2: Aily 编译
             print("[Pipeline] Step 2: Aily 决策编译...")
+            # 先注册会议到平台（供 candidate 反查；失败则整条链路提前失败，不静默继续）
+            platform_client.submit_meeting(meeting_package)
             state_machine.set_state(
                 f"minutes:{source_id}",
                 MeetingState.COMPILING,
@@ -187,6 +202,7 @@ class PipelineOrchestrator:
             "captured_at": now_iso(),
             "metadata": {"source": "manual_input"},
         }
+        meeting_package = _normalize_meeting_package(meeting_package)
 
         source_id = meeting_package["source_object_id"]
 
@@ -197,6 +213,9 @@ class PipelineOrchestrator:
             return cached
 
         try:
+            # 注册会议到平台（供 candidate 反查）
+            platform_client.submit_meeting(meeting_package)
+
             # Aily 编译
             print("[Pipeline] Aily 决策编译...")
             candidate_package = aily_adapter.compile(meeting_package)

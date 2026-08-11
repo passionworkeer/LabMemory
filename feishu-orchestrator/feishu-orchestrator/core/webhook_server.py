@@ -157,6 +157,11 @@ class WebhookHandler(BaseHTTPRequestHandler):
         不得继续进入事件路由或卡片处理。
         """
         if Config.is_mock_mode():
+            # mock 模式：限 localhost，拒绝远端（防未设 RUN_MODE=real 即暴露导致验签旁路）
+            client_ip = (getattr(self, "client_address", None) or ("",))[0]
+            if client_ip not in ("127.0.0.1", "::1", "localhost"):
+                self._send_json(403, {"error": "RUN_MODE=mock 仅允许本地访问；生产请设 RUN_MODE=real"})
+                return False
             return True
 
         if verify_signature(

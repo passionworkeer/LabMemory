@@ -10,7 +10,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Header
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, get_current_user, require_member, verify_platform_api_key
+from app.api.deps import get_db, get_current_user, require_member, verify_platform_api_key, visible_experiment_ids, ensure_experiment_member
 from app.core.errors import ConflictError, NotFoundError, StateTransitionError
 from app.core.security import new_id
 from app.db.models import (
@@ -147,6 +147,9 @@ def list_meeting_reviews(
         .join(MeetingReview, MeetingReview.meeting_id == Meeting.id)
         .order_by(Meeting.created_at.desc())
     )
+    visible = visible_experiment_ids(db, user)
+    if visible is not None:
+        qs = qs.filter(Meeting.experiment_id.in_(visible))
     if status:
         qs = qs.filter(MeetingReview.status == status)
     out = []
@@ -158,12 +161,14 @@ def list_meeting_reviews(
 @router.get("/api/meetings/{meeting_id}", response_model=MeetingDetailOut)
 def get_meeting(meeting_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     m, r = _get_meeting_review(db, meeting_id)
+    ensure_experiment_member(db, m.experiment_id, user)
     return _detail_out(db, m, r)
 
 
 @router.get("/api/meetings/{meeting_id}/chain", response_model=MeetingChainItem)
 def get_meeting_chain(meeting_id: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     m, r = _get_meeting_review(db, meeting_id)
+    ensure_experiment_member(db, m.experiment_id, user)
     return _chain_item(db, m, r)
 
 

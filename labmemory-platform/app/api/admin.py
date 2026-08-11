@@ -25,10 +25,10 @@ router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
 def _require_admin(user: User) -> User:
-    if user.global_role not in ("admin", "pi"):
-        # PI 也允许重置演示数据，方便 Demo 演示
+    if user.global_role != "admin":
+        # 仅 admin 可清空全平台业务数据（PI 不应能清空他人项目）
         from app.core.errors import PermissionDeniedError
-        raise PermissionDeniedError("仅管理员或 PI 可重置演示数据")
+        raise PermissionDeniedError("仅管理员可重置演示数据")
     return user
 
 

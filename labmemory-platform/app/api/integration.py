@@ -49,12 +49,10 @@ def _resolve_candidate(db: Session, candidate_id: str):
 
 
 def _actor_for(db: Session, open_id: str | None) -> User | None:
-    """open_id → 平台 User（feishu_user_id）；无映射时回退 admin 占位，保证审计可追溯。"""
+    """open_id → 平台 User（feishu_user_id）；无映射返 None——不充当 admin，审计 reason 记原始 open_id。"""
     if open_id:
-        u = db.query(User).filter(User.feishu_user_id == open_id).first()
-        if u:
-            return u
-    return db.query(User).filter(User.global_role == "admin").first()
+        return db.query(User).filter(User.feishu_user_id == open_id).first()
+    return None
 
 
 # === 路由 ===
@@ -195,6 +193,19 @@ def card_callback(payload: CardCallbackIn, db: Session = Depends(get_db)):
             .order_by(Task.id.desc())
             .first()
         )
+        # 复核已 processed：仅 draft/needs_confirmation/blocked 可重审；running/completed 不回退状态
+        if task is not None and task.status not in ("draft", "needs_confirmation", "blocked"):
+            existing_audit = db.query(ActionAudit).filter(ActionAudit.task_id == task.id).first()
+            aa = existing_audit.status if existing_audit else "needs_confirmation"
+            resp = {
+                "status": "approved" if aa == "passed" else "blocked",
+                "action_audit": aa,
+                "candidate_id": candidate_id,
+                "message": f"任务已 {task.status}，不重新审计（避免状态回退）",
+            }
+            _log_callback(db, token, action_type, candidate_id, resp, actor_id, task_id=task.task_id)
+            db.commit()
+            return resp
 
     if task is None:
         resp = {"status": "blocked", "action_audit": "no_task", "candidate_id": candidate_id,
