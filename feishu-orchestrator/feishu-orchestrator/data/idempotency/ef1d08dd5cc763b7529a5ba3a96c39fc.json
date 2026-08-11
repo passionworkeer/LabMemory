@@ -1,8 +1,0 @@
-{
-  "key": "event:evt_meeting_001",
-  "result": {
-    "result": "processed"
-  },
-  "created_at": "2026-08-05T16:09:14.974760+08:00",
-  "ttl_seconds": 604800
-}
