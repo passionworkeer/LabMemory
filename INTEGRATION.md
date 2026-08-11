@@ -65,7 +65,7 @@
 # 平台后端
 pip install -r labmemory-platform/requirements.txt
 
-# 前端（标准 npm 环境；本机 npm 环境 bug 见 §5）
+# 前端（lockfile 曾损坏，已修复，见 §5；npm install + npm run build）
 cd labmemory-platform/frontend && npm install && npm run build
 
 # 编排器（仅 python-dotenv）
@@ -207,7 +207,7 @@ python scripts/health_check.py     # → 11 通过 / 0 失败
 | **Python 版本** | 平台 `pyproject.toml` 标 `requires-python>=3.12`，本机仅 3.11.9 | 用 `pip install -r requirements.txt` + 源码直跑 `uvicorn` 绕过 packaging 约束；实测 3.11.9 全链路通过。若用 `pip install <package>` 安装包本身会被 3.12 约束拒绝 |
 | **SQLite 目录** | `DATABASE_URL=sqlite:///./data/labmemory.db`，平台不自动建 `data/` 目录 | 首次启动前 `mkdir -p labmemory-platform/data`，否则 `unable to open database file` |
 | **Windows 控制台编码** | 默认 cp1252/gbk 会让中文 print 抛 `UnicodeEncodeError` | 设 `PYTHONIOENCODING=utf-8`（编排器 `core/config.py` 已在启动期强制重配） |
-| **前端构建（本机）** | 本机 `npm install`（含 `--ignore-scripts`/`--no-bin-links`/清缓存/换 ASCII 路径，甚至装单个轻包 `is-odd`）**无一例外**触发 npm 内部错误 `Exit handler never called!`，`node_modules` 装到中途（~69 包）崩溃，`.bin/tsc\|vite` 软链建不出，`npm run build` 报 `tsc 不是命令`；本机无 yarn/pnpm 可替代 | **本机 npm 安装不可用，非项目缺陷**——前端源码（标准 Vite 6 + React 19 + Tailwind 4）在正常 npm 环境可 `npm install && npm run build`。当前平台回退服务 `app/static/index.html` 登录占位，API/Swagger/全链路均不受影响。修复：换 npm 正常的机器构建，或重装 Node.js（当前来自 `.workbuddy/binaries/node/22.22.2`，疑似该 bundle 与本机环境冲突）/ 关闭 AV 后重试 |
+| **前端构建（已修复）** | 提交进来的 `frontend/package-lock.json` 内部不一致，导致 `npm install` 在**宿主机与干净 `node:22-alpine` 容器里同样**触发 `Exit handler never called!`（`node_modules` 装到中途崩溃、`.bin/tsc\|vite` 软链建不出、`npm run build` 报 `tsc 不是命令`）。早先误判为「宿主机 npm 不可用」，实际是 lockfile 问题 | **已修复**：删 `package-lock.json` 重装再生，`npm run build` 正常产出 dist（`index.html` + 38KB CSS + 345KB JS），`GET /` 已返回真实 React UI（非 static 占位）。再生 lockfile 已提交。后续直接 `npm install && npm run build` 即可 |
 | **幂等缓存** | 编排器 `data/idempotency/` 默认 TTL 7 天，重复跑 demo 同一 `event_id` 会被判 duplicate | 跑前 `python scripts/demo_recovery.py` 或清 `data/` |
 | **真实飞书凭证** | `FEISHU_APP_ID/SECRET`、`AILY_API_KEY` 均为占位符 | 真飞书实时联动需配置真凭证并切 `RUN_MODE=real`（B 计划前提） |
 
@@ -262,6 +262,24 @@ python scripts/health_check.py     # → 11 通过 / 0 失败
 
 > card/callback 对 approve 诚实返回 `action_audit=needs_confirmation`（新建任务尚未审批/资源/失败边界就绪，六道闸门如实不放行）——这正是「行动前审计」产品价值，非乐观 pass。编排器侧 `card_handler` 仅在 `status=approved AND action_audit=pass` 后建飞书任务，平台如实返回确保不会越过审计建任务。
 
+### 6.4 反向联动（平台 → 编排器）现状与取舍
+
+契约 `FeishuActionRequest`（平台 → 编排器，`send_card` / `create_task` / `update_base` / `publish_doc` / `notify`）描述了平台主动请求飞书侧执行动作的方向。勘查结论：**此方向两侧均未实现，且当前并非系统运转所必需**，故作为后续工作保留。
+
+**为何未实现且非阻塞**：
+- **建任务场景已被正向流程覆盖**：当前架构是「卡片 approve → 编排器 `card_handler._handle_approved` 自建飞书任务 → `POST /api/v1/task/status` 回写 guid」（见 §6.3）。任务创建由编排器在收到平台 `approved+pass` 后驱动，**不需要**平台再下发 `FeishuActionRequest(create_task)`。若再实现反向建任务，会与正向重复、形成并行路径。
+- **平台侧无消费代码**：`FEISHU_ORCHESTRATOR_BASE_URL` / `FEISHU_ORCHESTRATOR_MODE=mock` 配置存在（`app/config.py:36-37`），但**没有任何客户端代码**组装并发送 `FeishuActionRequest`。
+- **编排器侧无接收端点**：`webhook_server.py` 仅实现 `/webhook/event`、`/webhook/card`；`/webhook/platform`（`DEPLOYMENT.md:139` 提及）**未编码**。
+
+**真正实现反向联动需要**（B 级工作量 + 凭证门控）：
+1. 编排器新增 `POST /webhook/platform` 端点，按 `FeishuActionRequest.action_type` 分派到既有 `im_card_adapter` / `task_adapter` / `docs_adapter` 等。
+2. 平台新增 `app/services/feishu_client.py`，在特定业务节点（如「知识发布」→`publish_doc`、「复核待办」→`send_card`）组装并发送 `FeishuActionRequest` 到 `{FEISHU_ORCHESTRATOR_BASE_URL}/webhook/platform`。
+3. 触发点设计（哪些平台状态变更应主动通知飞书侧）——需产品决策。
+4. 走 OpenSpec change（新增端点 + 接口 = 系统行为变更）。
+5. 真飞书侧落地仍需真 `FEISHU_APP_ID/SECRET` + `AILY_API_KEY` + `RUN_MODE=real`（mock 级可先验证通路）。
+
+**建议**：除非产品确需「平台主动通知飞书」（如知识发布自动推送飞书文档），否则维持当前正向驱动架构；反向联动作为有明确需求时再启动的独立 change。
+
 ---
 
 ## 7. 仓库结构（整合后）
@@ -304,7 +322,8 @@ python scripts/health_check.py     # → 11 通过 / 0 失败
 - [x] 真跨侧 e2e `scripts/cross_side_check.py` → 5/5 通过
 - [x] §6 合规对照表正向全 ✅ + §6.3 跨侧 e2e 证据
 
-**待办（非本次范围）**
-- [ ] 平台→编排器反向联动（需真 FEISHU 凭证 + `RUN_MODE=real`）
-- [ ] 前端 React UI 构建（本机 npm 不可用，见 §5；换正常 npm 环境构建即可）
-- [ ] `candidate_id` 索引列（demo 规模 JSON 扫描够用，生产规模另起 change）
+**后续待办**
+- [x] **仓库运行时产物清理**：解除 6 个 `data/`/`logs` 文件的 git 跟踪（commit `1331e53`，`.gitignore` 已覆盖）
+- [-] **平台→编排器反向联动**：架构分析见 §6.4——两侧均未实现，正向流程已覆盖建任务，建议按需启动（非阻塞）
+- [x] **前端 React UI 构建**：根因是提交的 `package-lock.json` 损坏（非宿主机 npm），已删 lockfile 重装再生 + `npm run build` 产出 dist；`GET /` 返回真实 React UI。再生 lockfile 已提交（产物 `frontend/dist/` 已 gitignore）
+- [ ] **`candidate_id` 索引列**：demo 规模 JSON 扫描够用，生产规模另起 change
