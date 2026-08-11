@@ -118,7 +118,7 @@ class PipelineOrchestrator:
 
             # 汇总结果
             result = {
-                "status": "success",
+                "status": "submitted",
                 "source_id": source_id,
                 "meeting_title": meeting_title,
                 "candidate_count": len(candidate_package.get("candidates", [])),
@@ -126,7 +126,7 @@ class PipelineOrchestrator:
                 "action_count": len(candidate_package.get("action_items", [])),
                 "submit_result": submit_result,
                 "review_cards_sent": bool(reviewer_id),
-                "completed_at": now_iso(),
+                "submitted_at": now_iso(),
             }
 
             # 标记幂等
@@ -149,6 +149,15 @@ class PipelineOrchestrator:
 
         except Exception as e:
             print(f"[Pipeline] ❌ 流程失败: {e}")
+            # 失败告警（PRD §13：异常可降级可见；best-effort，不阻断抛出）
+            if reviewer_id:
+                try:
+                    im_card_adapter.send_alert_card(
+                        receive_id=reviewer_id, title="妙记流水线失败",
+                        error=str(e), retry_action={"source": minutes_url},
+                    )
+                except Exception:
+                    pass
 
             # 更新状态
             source_id = minutes_url
@@ -237,7 +246,7 @@ class PipelineOrchestrator:
                     )
 
             result = {
-                "status": "success",
+                "status": "submitted",
                 "source_id": source_id,
                 "meeting_title": title,
                 "candidate_count": len(candidate_package.get("candidates", [])),
@@ -245,7 +254,7 @@ class PipelineOrchestrator:
                 "action_count": len(candidate_package.get("action_items", [])),
                 "submit_result": submit_result,
                 "review_cards_sent": bool(reviewer_id),
-                "completed_at": now_iso(),
+                "submitted_at": now_iso(),
             }
 
             idempotency_guard.mark(idempotency_key, result)
@@ -254,6 +263,14 @@ class PipelineOrchestrator:
 
         except Exception as e:
             print(f"[Pipeline] ❌ 流程失败: {e}")
+            if reviewer_id:
+                try:
+                    im_card_adapter.send_alert_card(
+                        receive_id=reviewer_id, title="文本流水线失败",
+                        error=str(e), retry_action={"source": source_id},
+                    )
+                except Exception:
+                    pass
             state_machine.set_state(
                 f"manual:{source_id}",
                 MeetingState.FAILED,

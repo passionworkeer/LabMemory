@@ -247,6 +247,11 @@ class AilyAdapter:
             if "confidence" not in cand:
                 cand["confidence"] = 0.7
 
+            # experiment_ref 格式确定性校验（real/mock 共用，PRD：编号由确定性规则控制）
+            exp_ref = cand.get("experiment_ref", "")
+            if exp_ref and not re.match(r'^[A-Za-z][A-Za-z0-9_\-]*$', str(exp_ref)):
+                cand["_validation_warning"] = f"experiment_ref 格式异常：{exp_ref}"
+
             if not cand.get("evidence"):
                 cand["evidence"] = []
 

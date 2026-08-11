@@ -402,7 +402,7 @@ class TestPipelineOrchestrator(unittest.TestCase):
         )
 
         self.assertIn("status", result)
-        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["status"], "submitted")
         self.assertIn("candidate_count", result)
         self.assertGreater(result["candidate_count"], 0)
         self.assertTrue(result.get("review_cards_sent"))
@@ -422,7 +422,7 @@ class TestPipelineOrchestrator(unittest.TestCase):
         )
 
         self.assertIn("status", result)
-        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["status"], "submitted")
         self.assertGreater(result["candidate_count"], 0)
         self.assertTrue(result.get("review_cards_sent"))
 

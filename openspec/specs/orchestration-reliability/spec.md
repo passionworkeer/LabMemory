@@ -103,3 +103,11 @@ TBD - created by archiving change retro-spec-feishu-orchestrator. Update Purpose
 - WHEN 重试该回调
 - THEN 系统 SHALL 跳过 `_handle_approved` 的建任务副作用（已受理），MUST NOT 二次建任务
 
+### Requirement: real Aily 路径确定性规则
+系统 SHALL 在 real Aily 编译路径（非仅 mock）应用确定性规则：experiment_ref 编号格式校验、参数数值范围校验、版本号校验。MUST NOT 直接采信 Aily 原始输出而不校验。
+
+#### Scenario: real 路径校验编号格式
+- GIVEN real Aily 返回 candidate 的 experiment_ref 格式非法
+- WHEN 编排器组装 CandidatePackage
+- THEN 系统 SHALL 校验失败并标记，MUST NOT 原样透传
+
