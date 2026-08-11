@@ -236,7 +236,7 @@ def confirm_review(
         target_type="meeting", target_id=m.meeting_id,
         after={"claim_id": claim.claim_id, "task_id": task.task_id if task else None,
                "publish_status": publish_status, "gate_failed": gate["report"], "conflicts": conflicts},
-        reason=payload.notes or "",
+        reason=(payload.reason or payload.notes or ""),
     ))
     db.commit()
     return _chain_item(db, m, r)
@@ -297,10 +297,9 @@ def _build_claim(
         if "title" in modifications:
             content["title"] = modifications["title"]
 
-    # 当前参数版本：取 params 列表组装（保留全部，version 自增）
-    # 同实验同参数的旧 active claim 自动 superseded —— 仅当新主张发布为 current 时才 supersede 旧主张
-    version_no = 1
+    # 参数版本：按参数维度跟踪（PRD §10.3）——仅当发布为 current 时 supersede 旧主张并对比同名参数
     replaces_id = None
+    old_param_versions: dict = {}
     if publish_status == "current":
         old_active = (
             db.query(Claim)
@@ -311,15 +310,33 @@ def _build_claim(
         if old_active is not None:
             old_active.status = "superseded"
             replaces_id = old_active.id
-            old_pv = old_active.parameter_version or {}
+            for p in ((old_active.parameter_version or {}).get("parameters") or []):
+                old_param_versions[p.get("name")] = {"value": p.get("value"), "version": p.get("version", "v1")}
+
+    # 每个参数独立版本：值相同继承（不升版），变化/新增升版
+    versioned_params = []
+    max_v = 1
+    for p in params:
+        name, new_val = p.get("name"), p.get("value")
+        old = old_param_versions.get(name)
+        if old is not None and str(old.get("value")) == str(new_val):
+            v = old.get("version", "v1")  # 继承
+        elif old is not None:
             try:
-                version_no = int(old_pv.get("version", "v1").lstrip("v")) + 1
-            except (ValueError, AttributeError):
-                version_no = 2
+                v = f"v{int(str(old.get('version', 'v1')).lstrip('v')) + 1}"
+            except (ValueError, TypeError):
+                v = "v2"
+        else:
+            v = "v1"
+        versioned_params.append({**p, "version": v})
+        try:
+            max_v = max(max_v, int(str(v).lstrip("v")))
+        except (ValueError, TypeError):
+            pass
 
     parameter_version = {
-        "parameters": params,
-        "version": f"v{version_no}",
+        "parameters": versioned_params,
+        "version": f"v{max_v}",  # 顶层取最大，向后兼容
         "effective_at": datetime.utcnow().isoformat(),
         "scope": (modifications or {}).get("scope") or (content.get("scope") if modifications else None),
     }

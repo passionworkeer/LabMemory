@@ -149,6 +149,8 @@ class ReviewConfirmIn(BaseModel):
     # 修改后的参数或其他内容（用于生成主张）
     modifications: dict[str, Any] | None = None
     notes: str | None = None
+    # 人工修改原因（三值留痕，PRD line 297：任何人工修改 MUST 记录原因）
+    reason: str | None = None
 
 
 class MeetingReviewOut(BaseModel):

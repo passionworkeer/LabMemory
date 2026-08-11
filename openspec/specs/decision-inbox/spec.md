@@ -2,9 +2,7 @@
 
 ## Purpose
 承接 Aily 编译产生的候选对象（参数、主张、争议、风险、任务），完成三值复核、证据确认与受控发布，是会议判断进入可信知识前的统一收件箱。
-
 ## Requirements
-
 ### Requirement: 三值对比
 系统 SHALL 在决策收件箱中并列展示「原始会议表达 / AI 候选值 / 人工确认值」三值；任何人工修改 MUST 填写或选择修改原因。
 
@@ -36,3 +34,12 @@
 - GIVEN 候选为参数变更或高风险项
 - WHEN 用户尝试批量确认
 - THEN 系统 SHALL 拒绝批量发布，要求逐条进入决策收件箱处理
+
+### Requirement: 三值留痕与修改原因
+系统 SHALL 保留三值：原始会议表达（`Meeting.raw_payload`+transcript）、AI 候选（`Candidate.candidates`）、人工确认值（`MeetingReview.modifications`）。任何人工修改 MUST 记录修改人（`MeetingReview.reviewer_id`）与原因（`ReviewConfirmIn.reason`/`notes`，写入 AuditEvent）。
+
+#### Scenario: 人工修改记录原因
+- GIVEN 复核人确认候选并把浓度从 0.20 改为 0.25
+- WHEN 提交复核（modifications + reason「浓度由实验结果校正」）
+- THEN 系统 SHALL 在 MeetingReview.modifications 记录新值，并在 AuditEvent 记录修改人 + reason
+
