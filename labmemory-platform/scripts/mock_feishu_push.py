@@ -39,7 +39,7 @@ def _post(path: str, payload: dict, base_url: str, api_key: str) -> dict:
         method="POST",
         headers={
             "Content-Type": "application/json",
-            "x-platform-api-key": api_key,
+            "Authorization": f"Bearer {api_key}",
         },
     )
     try:
@@ -141,7 +141,7 @@ def push_single(base_url: str, api_key: str) -> None:
         ],
     )
     print(f"→ 推送会议 {mid}")
-    result = _post("/v1/meetings", payload, base_url, api_key)
+    result = _post("/api/v1/meetings", payload, base_url, api_key)
     print(f"  ✓ created={result.get('created')}")
 
     cand = build_candidate_payload(
@@ -168,7 +168,7 @@ def push_single(base_url: str, api_key: str) -> None:
         open_questions=["75℃ 下副产物是否可控？"],
     )
     print("→ 推送候选包")
-    result = _post("/v1/candidates", cand, base_url, api_key)
+    result = _post("/api/v1/candidates", cand, base_url, api_key)
     print(f"  ✓ created={result.get('created')}")
     print()
     print(f"完成！会议 ID: {mid}")
@@ -200,7 +200,7 @@ def push_demo_scenarios(base_url: str, api_key: str) -> None:
         ],
         captured_delta=timedelta(days=-2),
     )
-    _post("/v1/meetings", m1, base_url, api_key)
+    _post("/api/v1/meetings", m1, base_url, api_key)
     cand1 = build_candidate_payload(
         source_package_id=m1_id,
         candidates=[{
@@ -222,7 +222,7 @@ def push_demo_scenarios(base_url: str, api_key: str) -> None:
             "needs_review": True,
         }],
     )
-    _post("/v1/candidates", cand1, base_url, api_key)
+    _post("/api/v1/candidates", cand1, base_url, api_key)
     print("  ✓ 推送完成")
 
     # 场景 2：80℃ 暂定参数（1 天前）
@@ -240,7 +240,7 @@ def push_demo_scenarios(base_url: str, api_key: str) -> None:
         ],
         captured_delta=timedelta(days=-1),
     )
-    _post("/v1/meetings", m2, base_url, api_key)
+    _post("/api/v1/meetings", m2, base_url, api_key)
     cand2 = build_candidate_payload(
         source_package_id=m2_id,
         candidates=[{
@@ -262,7 +262,7 @@ def push_demo_scenarios(base_url: str, api_key: str) -> None:
         }],
         risks=[{"type": "safety", "description": "高温可能导致副反应增加"}],
     )
-    _post("/v1/candidates", cand2, base_url, api_key)
+    _post("/api/v1/candidates", cand2, base_url, api_key)
     print("  ✓ 推送完成")
 
     # 场景 3：70℃ 复现实验（2 小时前）
@@ -282,7 +282,7 @@ def push_demo_scenarios(base_url: str, api_key: str) -> None:
         ],
         captured_delta=timedelta(hours=-2),
     )
-    _post("/v1/meetings", m3, base_url, api_key)
+    _post("/api/v1/meetings", m3, base_url, api_key)
     cand3 = build_candidate_payload(
         source_package_id=m3_id,
         candidates=[{
@@ -306,7 +306,7 @@ def push_demo_scenarios(base_url: str, api_key: str) -> None:
         }],
         open_questions=["浓度是否固定在 0.20 mol/L？"],
     )
-    _post("/v1/candidates", cand3, base_url, api_key)
+    _post("/api/v1/candidates", cand3, base_url, api_key)
     print("  ✓ 推送完成")
 
     # 场景 4：待复核会议（30 分钟前）
@@ -324,7 +324,7 @@ def push_demo_scenarios(base_url: str, api_key: str) -> None:
         ],
         captured_delta=timedelta(minutes=-30),
     )
-    _post("/v1/meetings", m4, base_url, api_key)
+    _post("/api/v1/meetings", m4, base_url, api_key)
     cand4 = build_candidate_payload(
         source_package_id=m4_id,
         candidates=[{
@@ -346,7 +346,7 @@ def push_demo_scenarios(base_url: str, api_key: str) -> None:
         }],
         open_questions=["0.8 eq 下收率会不会下降？"],
     )
-    _post("/v1/candidates", cand4, base_url, api_key)
+    _post("/api/v1/candidates", cand4, base_url, api_key)
     print("  ✓ 推送完成")
 
     print()

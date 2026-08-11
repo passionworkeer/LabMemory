@@ -24,7 +24,7 @@ def _now_iso() -> str:
 
 
 def _headers_platform() -> dict:
-    return {"Content-Type": "application/json", "X-Platform-Api-Key": PLATFORM_API_KEY}
+    return {"Content-Type": "application/json", "Authorization": f"Bearer {PLATFORM_API_KEY}"}
 
 
 def _headers_user(token: str) -> dict:
@@ -63,7 +63,7 @@ def push_meeting(client, experiment_id: str, meeting_id: str) -> dict:
         "captured_at": _now_iso(),
         "metadata": {"experiment_id": experiment_id, "project_id": "PROJ-DEMO-001"},
     }
-    r = client.post("/v1/meetings", json=payload, headers=_headers_platform())
+    r = client.post("/api/v1/meetings", json=payload, headers=_headers_platform())
     r.raise_for_status()
     return r.json()
 
@@ -111,7 +111,7 @@ def push_candidate(client, meeting_id: str) -> dict:
         "open_questions": [],
         "compiled_at": _now_iso(),
     }
-    r = client.post("/v1/candidates", json=payload, headers=_headers_platform())
+    r = client.post("/api/v1/candidates", json=payload, headers=_headers_platform())
     r.raise_for_status()
     return r.json()
 

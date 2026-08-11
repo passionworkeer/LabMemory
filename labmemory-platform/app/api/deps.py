@@ -74,10 +74,25 @@ def ensure_experiment_member(db: Session, experiment_id: int, user: User) -> Exp
     return m
 
 
-def verify_platform_api_key(x_platform_api_key: str | None = Header(default=None)):
-    """飞书编排器调用 /v1/* 接口的鉴权。"""
+def verify_platform_api_key(
+    authorization: str | None = Header(default=None),
+    x_platform_api_key: str | None = Header(default=None),
+):
+    """飞书编排器调用 /api/v1/* 接口的鉴权。
+
+    契约要求 Authorization: Bearer {PLATFORM_API_KEY}（contracts/spec.md:56-57）；
+    为兼容平台既有测试夹具（X-Platform-Api-Key），双接受。
+    """
     from app.config import settings
     from app.core.errors import PermissionDeniedError
-    if not x_platform_api_key or x_platform_api_key != settings.PLATFORM_API_KEY:
-        raise PermissionDeniedError("无效的 PLATFORM_API_KEY")
-    return True
+
+    bearer: str | None = None
+    if authorization and authorization.lower().startswith("bearer "):
+        bearer = authorization.split(" ", 1)[1].strip()
+
+    if settings.PLATFORM_API_KEY and (
+        bearer == settings.PLATFORM_API_KEY
+        or x_platform_api_key == settings.PLATFORM_API_KEY
+    ):
+        return True
+    raise PermissionDeniedError("无效的 PLATFORM_API_KEY")

@@ -7,7 +7,7 @@
 
 ## 0. 一句话现状
 
-两个子系统已并入同一仓库、**两侧各自端到端跑通**（平台 17 步决策全链路 + pytest、编排器 22 个集成测试 + 11 项体检，全部绿）；**实时跨侧联动尚未实现**——二者目前各对着对方的 Mock 运行（契约设计的"并行开发"阶段产物），把两侧真正打通是 B 计划（见第 6 节）。
+两个子系统已并入同一仓库、**两侧各自端到端跑通**（平台 17 步决策全链路 + pytest、编排器 22 个集成测试 + 11 项体检，全部绿）；**正向跨侧联动已打通**（平台已拉回契约合规，`scripts/cross_side_check` 以编排器同款客户端直打真实平台 4 条契约路由，5/5 通过，见 §6.3）。反向（平台请求飞书建任务）仍为 mock，待真飞书凭证。
 
 ---
 
@@ -181,6 +181,7 @@ python scripts/health_check.py     # → 11 通过 / 0 失败
 | 平台 API 文档 | `GET /docs` | 200 Swagger | ✅ |
 | 编排器集成 | `python tests/test_integration.py` | 22/22 | ✅ |
 | 编排器体检 | `python scripts/health_check.py` | 11/11 | ✅ |
+| **真跨侧联动** | `python -m scripts.cross_side_check` | 5/5 | ✅（B 计划后新增） |
 
 ---
 
@@ -206,7 +207,7 @@ python scripts/health_check.py     # → 11 通过 / 0 失败
 | **Python 版本** | 平台 `pyproject.toml` 标 `requires-python>=3.12`，本机仅 3.11.9 | 用 `pip install -r requirements.txt` + 源码直跑 `uvicorn` 绕过 packaging 约束；实测 3.11.9 全链路通过。若用 `pip install <package>` 安装包本身会被 3.12 约束拒绝 |
 | **SQLite 目录** | `DATABASE_URL=sqlite:///./data/labmemory.db`，平台不自动建 `data/` 目录 | 首次启动前 `mkdir -p labmemory-platform/data`，否则 `unable to open database file` |
 | **Windows 控制台编码** | 默认 cp1252/gbk 会让中文 print 抛 `UnicodeEncodeError` | 设 `PYTHONIOENCODING=utf-8`（编排器 `core/config.py` 已在启动期强制重配） |
-| **前端构建（本机）** | 本机 `npm install` 触发 npm 内部错误 `Exit handler never called!`，导致 `node_modules/.bin/tsc\|vite` 软链未生成，`npm run build` 报 `tsc 不是命令`；多次 `npm ci`/清缓存/换 ASCII 路径均复现 | **本机 npm 环境问题，非项目缺陷**——前端源码（标准 Vite 6 + React 19 + Tailwind 4）在正常 npm 环境可正常 `npm install && npm run build`。当前平台回退服务 `app/static/index.html` 登录占位，API/Swagger/全链路均不受影响。修复建议：换一台 npm 正常的机器构建，或重装 Node.js / 升级 npm / 关闭 AV 后重试 |
+| **前端构建（本机）** | 本机 `npm install`（含 `--ignore-scripts`/`--no-bin-links`/清缓存/换 ASCII 路径，甚至装单个轻包 `is-odd`）**无一例外**触发 npm 内部错误 `Exit handler never called!`，`node_modules` 装到中途（~69 包）崩溃，`.bin/tsc\|vite` 软链建不出，`npm run build` 报 `tsc 不是命令`；本机无 yarn/pnpm 可替代 | **本机 npm 安装不可用，非项目缺陷**——前端源码（标准 Vite 6 + React 19 + Tailwind 4）在正常 npm 环境可 `npm install && npm run build`。当前平台回退服务 `app/static/index.html` 登录占位，API/Swagger/全链路均不受影响。修复：换 npm 正常的机器构建，或重装 Node.js（当前来自 `.workbuddy/binaries/node/22.22.2`，疑似该 bundle 与本机环境冲突）/ 关闭 AV 后重试 |
 | **幂等缓存** | 编排器 `data/idempotency/` 默认 TTL 7 天，重复跑 demo 同一 `event_id` 会被判 duplicate | 跑前 `python scripts/demo_recovery.py` 或清 `data/` |
 | **真实飞书凭证** | `FEISHU_APP_ID/SECRET`、`AILY_API_KEY` 均为占位符 | 真飞书实时联动需配置真凭证并切 `RUN_MODE=real`（B 计划前提） |
 
@@ -220,29 +221,46 @@ python scripts/health_check.py     # → 11 通过 / 0 失败
 
 > 基址 `PLATFORM_API_BASE`（默认 `…/api`），路由 `POST /v1/candidates`、`POST /v1/card/callback`、`POST /v1/task/status`、`GET /v1/candidates/{candidate_id}`，鉴权 `Authorization: Bearer {PLATFORM_API_KEY}`。
 
-**合规性对照**：
+**合规性对照**（B 计划已完成，平台已拉回契约合规）：
 
 | 维度 | 契约要求 | 编排器（feishu-orchestrator） | 平台（labmemory-platform） |
 |---|---|---|---|
-| 鉴权头 | `Authorization: Bearer {key}` | ✅ `core/platform_client.py:284` | ❌ 校验 `X-Platform-Api-Key`（`app/api/deps.py:77`） |
-| base 路径 | `{base}/v1/*`，base 含 `/api` | ✅ 默认 `…/api` | ❌ `/v1` 挂根（`app/api/meetings.py:39`），无 `/api` |
-| 路由覆盖 | 4 条（candidates/card/status/get） | ✅ 调全 4 条 | ❌ 仅 `POST /v1/candidates`；缺 card/status/get；多一契约没有的 `POST /v1/meetings` |
-| 反向（平台→编排器） | `FeishuActionRequest` | ✅ webhook 接收 | ❌ `FEISHU_ORCHESTRATOR_MODE=mock`，不真调 |
+| 鉴权头 | `Authorization: Bearer {key}` | ✅ `core/platform_client.py:284` | ✅ 双接受 Bearer + X-Platform-Api-Key（`app/api/deps.py`） |
+| base 路径 | `{base}/v1/*`，base 含 `/api` | ✅ 默认 `…/api` | ✅ `/api/v1` 前缀（`app/api/meetings.py:39` + `app/api/integration.py`） |
+| 路由覆盖 | 4 条（candidates/card/status/get） | ✅ 调全 4 条 | ✅ 4 条全实现 + 额外 `POST /api/v1/meetings` intake |
+| 反向（平台→编排器） | `FeishuActionRequest` | ✅ webhook 接收 | ⚠️ 仍 `FEISHU_ORCHESTRATOR_MODE=mock`（真飞书凭证前提，非本次范围） |
 
-**结论**：编排器**完全合规**；平台**偏离契约 5 处**。两侧各自的测试（平台 `e2e_test`/`mock_feishu_push`、编排器 `test_integration`）都用各自的（平台是偏离的）私有接口，所以内部自洽、能跑通，但**把真实编排器指向真实平台会全部 403/404**。
+**结论**：编排器与平台的**正向跨侧联动已打通并验证**（编排器 4 个出站调用模式直打真实平台，5/5 通过，见 §6.3）。反向（平台请求飞书建任务）仍为 mock，因其依赖真飞书凭证。
 
-### 6.2 B 计划：把平台拉回契约合规（本次不做，路线图）
+### 6.2 B 计划：平台契约合规化（已完成）
 
-按 `CLAUDE.md` 第 0 节，改接口属系统行为变更，**必须走 OpenSpec change**。草案要点：
+已通过 OpenSpec change `add-platform-intake-contract-compliance`（proposal + design + `platform-intake` spec + tasks，`validate` 通过后 `archive`）落地：
 
-1. **鉴权**：`app/api/deps.py:77` `verify_platform_api_key` 改为接受 `Authorization: Bearer {PLATFORM_API_KEY}`（或双接受，过渡期兼容）。
-2. **base 路径**：`/v1` 路由挂到 `/api` 前缀下；或统一文档约定 `PLATFORM_API_BASE` 不含 `/api`（二选一，前者更省配置）。
-3. **补路由**：`POST /v1/card/callback`（卡片回调入审核）、`POST /v1/task/status`（任务状态回写）、`GET /v1/candidates/{candidate_id}`（候选详情）。同步评估是否保留契约外的 `POST /v1/meetings`（平台 e2e 依赖它，或迁出到独立 intake）。
-4. **同步测试夹具**：`scripts/e2e_test.py`、`scripts/mock_feishu_push.py` 改用契约接口（Bearer + 4 路由）。
-5. **OpenSpec change**：新增平台侧 integration spec 领域（建议 `platform-intake`），含 proposal + ADDED specs + tasks，`openspec validate` 通过后 `archive`。
-6. **真 e2e**：编排器 `RUN_MODE=real`、`PLATFORM_API_BASE=http://localhost:8081/api` 指向本地平台，跑通「候选提交 → 卡片回调 → 任务状态回写」闭环（前提：真 FEISHU 凭证，否则仍止于 mock_feishu_push 模拟）。
+1. **鉴权**：`verify_platform_api_key` 双接受 `Authorization: Bearer` 与 `X-Platform-Api-Key`。
+2. **base 路径**：`v1_router` 前缀 `/v1` → `/api/v1`。
+3. **补路由**（新 `app/api/integration.py`）：`GET /api/v1/candidates/{id}`（扁平 + 富化 meeting_title/source_url）、`POST /api/v1/task/status`（candidate_id→Task，写 feishu_task_guid）、`POST /api/v1/card/callback`（嵌套信封解析 + action_type 分流 + **真实**六道闸门审计，不乐观 pass）。
+4. **候选响应**：`receive_candidate` 补 `status:"submitted"` + `results[]` + `review_count`。
+5. **Task 加列** `feishu_task_guid` + 轻迁移。
+6. **夹具同步**：`scripts/e2e_test.py`、`scripts/mock_feishu_push.py` 改 `/api/v1/*` + Bearer。
+7. **真跨侧 e2e**：新增 `scripts/cross_side_check.py`。
 
-> B 计划完成后，本文件 §6.1 的合规对照表应全部 ✅，并新增一节"跨侧实时 e2e"。
+实现复用既有 helper（`_build_claim`、`_run_checks`）via lazy import（沿用 `meetings._chain_item` 既有跨模块模式），未做过度抽象。
+
+### 6.3 跨侧实时 e2e 证据
+
+`python -m scripts.cross_side_check` 以编排器同款 urllib + `Authorization: Bearer` 直打平台 4 条契约路由：
+
+```
+✓ health                       status=ok data_source=sqlite
+✓ POST /api/v1/candidates      status=submitted created=True review_count=2
+✓ GET /api/v1/candidates/{id}  candidate_id=cand_cross_001 meeting_title='跨侧联动验证会议' 扁平=True
+✓ POST /api/v1/card/callback   status=blocked action_audit=needs_confirmation
+                                  msg='需确认：审批门/资源门/失败边界门…'
+✓ POST /api/v1/task/status     ok=True task_id=T_... feishu_task_guid=ftask_cross_demo_001
+→ ✓ 全部通过 (5/5)
+```
+
+> card/callback 对 approve 诚实返回 `action_audit=needs_confirmation`（新建任务尚未审批/资源/失败边界就绪，六道闸门如实不放行）——这正是「行动前审计」产品价值，非乐观 pass。编排器侧 `card_handler` 仅在 `status=approved AND action_audit=pass` 后建飞书任务，平台如实返回确保不会越过审计建任务。
 
 ---
 
@@ -268,12 +286,25 @@ python scripts/health_check.py     # → 11 通过 / 0 失败
 
 ---
 
-## 8. 交付清单（A 计划）
+## 8. 交付清单
 
+**A 计划（合并 + 各自可用）**
 - [x] 两子系统并入 main（fast-forward，零冲突）
-- [x] OpenSpec 源真相自洽（16 领域规格，活跃 change 归零，`validate --all` 全绿）
+- [x] OpenSpec 源真相自洽（活跃 change 归零，`validate --all` 全绿）
 - [x] 平台端到端可用：17 步决策全链路 + pytest 通过
 - [x] 编排器可用：22 集成测试 + 11 体检通过
 - [x] 三套契约 schema 两子系统语义一致
-- [x] 本整合文档（架构/启动/Demo/验证/缺口/B 计划）
-- [ ] **B 计划**：平台契约合规化 + 跨侧实时 e2e（见 §6.2）
+- [x] 本整合文档（架构/启动/Demo/验证/缺口）
+
+**B 计划（跨侧联动合规化，已完成）**
+- [x] OpenSpec change `add-platform-intake-contract-compliance`（proposal/design/spec/tasks）→ validate → archive
+- [x] 平台鉴权双接受 Bearer + `/api/v1` 前缀 + 候选响应补 status
+- [x] 3 条新契约路由（`app/api/integration.py`）+ Task 加 `feishu_task_guid`
+- [x] 平台夹具同步 `/api/v1` + Bearer
+- [x] 真跨侧 e2e `scripts/cross_side_check.py` → 5/5 通过
+- [x] §6 合规对照表正向全 ✅ + §6.3 跨侧 e2e 证据
+
+**待办（非本次范围）**
+- [ ] 平台→编排器反向联动（需真 FEISHU 凭证 + `RUN_MODE=real`）
+- [ ] 前端 React UI 构建（本机 npm 不可用，见 §5；换正常 npm 环境构建即可）
+- [ ] `candidate_id` 索引列（demo 规模 JSON 扫描够用，生产规模另起 change）

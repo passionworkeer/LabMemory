@@ -36,7 +36,7 @@ router = APIRouter(tags=["meetings"])
 
 # === 飞书侧推送 ===
 
-v1_router = APIRouter(prefix="/v1", tags=["integration"], dependencies=[Depends(verify_platform_api_key)])
+v1_router = APIRouter(prefix="/api/v1", tags=["integration"], dependencies=[Depends(verify_platform_api_key)])
 
 
 @v1_router.post("/meetings")
@@ -92,23 +92,45 @@ def receive_candidate(payload: CandidatePackageIn, db: Session = Depends(get_db)
         Candidate.meeting_id == meeting.id,
         Candidate.source_package_id == payload.source_package_id,
     ).first()
-    if existing:
-        return {"id": existing.id, "created": False}
+    created = False
+    if existing is None:
+        cand = Candidate(
+            meeting_id=meeting.id,
+            source_package_id=payload.source_package_id,
+            aily_skill_version=payload.aily_skill_version,
+            candidates=payload.candidates,
+            risks=payload.risks,
+            action_items=payload.action_items,
+            open_questions=payload.open_questions,
+            compiled_at=payload.compiled_at,
+            raw_payload=payload.model_dump(mode="json"),
+        )
+        db.add(cand)
+        db.commit()
+        db.refresh(cand)
+        cand_id = cand.id
+        created = True
+    else:
+        cand_id = existing.id
 
-    cand = Candidate(
-        meeting_id=meeting.id,
-        source_package_id=payload.source_package_id,
-        aily_skill_version=payload.aily_skill_version,
-        candidates=payload.candidates,
-        risks=payload.risks,
-        action_items=payload.action_items,
-        open_questions=payload.open_questions,
-        compiled_at=payload.compiled_at,
-        raw_payload=payload.model_dump(mode="json"),
+    # 契约响应：编排器 pipeline_orchestrator 读取 status 键
+    review_count = (
+        db.query(MeetingReview)
+        .join(Meeting, Meeting.id == MeetingReview.meeting_id)
+        .filter(Meeting.experiment_id == meeting.experiment_id, MeetingReview.status == "pending")
+        .count()
     )
-    db.add(cand)
-    db.commit()
-    return {"id": cand.id, "created": True}
+    results = [
+        {"candidate_id": c.get("candidate_id"), "status": "pending_review"}
+        for c in (payload.candidates or [])
+    ]
+    return {
+        "id": cand_id,
+        "created": created,
+        "status": "submitted",
+        "results": results,
+        "review_count": review_count,
+    }
 
 
 # === 平台前端 ===

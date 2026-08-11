@@ -21,6 +21,7 @@ from app.api import experiments as experiments_api
 from app.api import meetings as meetings_api
 from app.api import passport as passport_api
 from app.api import qa as qa_api
+from app.api import integration as integration_api
 from app.api import results as results_api
 from app.api import tasks as tasks_api
 from app.api.deps import get_db
@@ -61,6 +62,7 @@ def _run_migrations() -> None:
         ("resource_status", "VARCHAR(32) DEFAULT 'pending' NOT NULL"),
         ("resources", "JSON"),
         ("failure_boundary_ack", "BOOLEAN DEFAULT 0 NOT NULL"),
+        ("feishu_task_guid", "VARCHAR(128)"),
     ]
     with engine.begin() as conn:
         for col, ddl in new_cols:
@@ -174,6 +176,7 @@ app.include_router(results_api.router)
 app.include_router(passport_api.router)
 app.include_router(passport_api.list_router)
 app.include_router(qa_api.router)
+app.include_router(integration_api.router)
 
 
 # === 前端静态文件 ===

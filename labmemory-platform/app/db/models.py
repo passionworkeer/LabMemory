@@ -169,6 +169,8 @@ class Task(Base, IDMixin, TimestampMixin):
     resources: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     # 失败边界门：用户确认知晓历史失败边界风险后置 true
     failure_boundary_ack: Mapped[bool] = mapped_column(default=False, nullable=False)
+    # 飞书侧任务 GUID（编排器 POST /api/v1/task/status 回写）
+    feishu_task_guid: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
 
 
 class ActionAudit(Base, IDMixin, TimestampMixin):

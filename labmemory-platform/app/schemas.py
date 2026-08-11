@@ -111,6 +111,36 @@ class CandidatePackageIn(BaseModel):
     raw_output: str | None = None
 
 
+# === Integration intake（/api/v1/* 飞书编排器契约）===
+
+class CardCallbackValueIn(BaseModel):
+    action_type: Literal["approve", "revise", "reject"]
+    candidate_id: str
+
+
+class CardCallbackActionIn(BaseModel):
+    value: CardCallbackValueIn
+
+
+class CardCallbackIn(BaseModel):
+    """飞书编排器转发的卡片回调信封（嵌套结构，对齐 card_handler 转发体）。"""
+    token: str
+    open_id: str | None = None
+    action: CardCallbackActionIn
+
+    model_config = {"extra": "allow"}
+
+
+class TaskStatusIn(BaseModel):
+    """编排器回写飞书任务状态。extra（如 error）允许平铺额外字段。"""
+    candidate_id: str
+    feishu_task_guid: str
+    status: Literal["pending", "success", "failed"]
+    error: str | None = None
+
+    model_config = {"extra": "allow"}
+
+
 # === Meeting review ===
 
 class ReviewConfirmIn(BaseModel):
