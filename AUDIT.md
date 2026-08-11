@@ -88,5 +88,24 @@
 
 ## 5. 核心卖点实现度（一句话总评）
 
-**真实现**：版本不覆盖（`replaces_claim_id`+superseded）、阻断不建飞书任务（双条件+状态守卫）、审计三态结论、JWT+API key 鉴权（含本次安全加固）、跨侧正向联动（本次合规化打通）、幂等原子化（本次修复）。
-**Tier 2 待补（当前 PPT/缩水）**：六道闸门、6 类冲突检测、证据失效降级、三值留痕完整结构、参数级版本模型、语义分类栅栏、知识状态 5 态、spec-代码路径一致性——这八项是可信记忆层的根本性缺口，需产品规则定义后逐项走 OpenSpec change 补全。
+**真实现**：版本不覆盖（`replaces_claim_id`+superseded）、阻断不建飞书任务（双条件+状态守卫）、审计三态结论、JWT+API key 鉴权（含安全加固）、跨侧正向联动（合规化打通）、幂等原子化。
+
+**Tier 2 已实现（2026-08-11，4 个 OpenSpec change 归档）**：
+- 六道闸门（候选→主张发布前 `app/services/trust_rules.py`，PRD §10.1）— `add-trust-rules-engine`
+- 语义栅栏（可以试试/建议/可能/暂定 不生效，PRD line 854）— 同上
+- 冲突检测（数值冲突冻结 + 闸门/审计复用覆盖 6 类，PRD §10.5）— 同上
+- 知识状态 5 态（+replaced/insufficient_evidence，PRD §10.6）— `add-knowledge-five-states-and-evidence-degradation`
+- 证据失效降级（结构化校验 + 问答排除 + 发布守卫，PRD §13.1）— 同上
+- 三值留痕（reason 字段 + 修改人/原因入审计，PRD line 297）— `add-three-value-and-per-param-version`
+- 参数级版本模型（按参数维度跟踪版本，未变参数继承不升版，PRD §10.3）— 同上
+- pipeline 诚实 status（submitted）+ 失败告警卡片接线 — `add-alert-realrules-specalign`
+- real Aily 路径确定性校验（experiment_ref 格式，real/mock 共用）— 同上
+- spec-代码路径对齐说明（`/api/` 为准）— 同上
+
+**仍有的诚实边界**：
+- 真实 URL 证据可达性探活（需飞书文档权限，demo 用占位 URL，本次为结构化校验）。
+- 多 worker 分布式幂等（本次单进程原子文件锁；DB 唯一约束为生产增强）。
+- 真飞书实时联调（需真 FEISHU 凭证）。
+- spec 中 `/web/...` 路径的逐条改写未做（已用对齐说明声明以 `/api/` 为准）。
+
+> 8 个核心卖点已从「PPT/缩水」转为代码实现，规则源自 PRD §10/§13/line 854。剩余边界为外部凭证/生产增强，非产品逻辑缺口。
