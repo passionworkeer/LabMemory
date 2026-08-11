@@ -224,7 +224,7 @@ class ResultSubmitIn(BaseModel):
 
 
 class ResultPublishIn(BaseModel):
-    knowledge_status: Literal["supported", "partially_supported", "refuted"]
+    knowledge_status: Literal["supported", "partially_supported", "refuted", "replaced", "insufficient_evidence"]
     notes: str | None = None
     failure_boundary: dict[str, Any] | None = None
     model_feedback: dict[str, Any] | None = None

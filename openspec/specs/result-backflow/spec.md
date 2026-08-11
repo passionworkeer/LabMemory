@@ -2,9 +2,7 @@
 
 ## Purpose
 将实验 / 检测结果回流，校验其与任务、参数版本的关系，并以非二元知识状态持续校正决策，沉淀失败边界与后续动作。
-
 ## Requirements
-
 ### Requirement: 计划与实际参数对比
 系统 SHALL 分别记录计划参数与实际参数；实际偏差 MUST NOT 覆盖计划值。
 
@@ -36,3 +34,12 @@
 - GIVEN 升温导致副产物升高至 9%
 - WHEN 系统生成失败边界卡 F001
 - THEN 根因（高温与催化剂当量共同促进副反应）SHALL 标记为「假设」，并生成「降到 0.8 eq 复验」后续任务
+
+### Requirement: 证据失效降级与停止推荐
+系统 SHALL 在问答检索（`/api/qa/ask`）排除证据失效的 current 主张（PRD §13.1）。证据有效性定义为结构化非空（evidence 列表非空且每条含 text）。结果发布时若关联主张证据失效，系统 SHALL 提示采用 `insufficient_evidence`。真实 URL 可达性探活（需飞书文档权限）作为后续增强，本次实现结构化校验。
+
+#### Scenario: 证据失效不作为问答答案
+- GIVEN 实验 EXP-001 有 current 主张 C_x 但其 evidence 为空/残缺
+- WHEN 用户提问命中 C_x
+- THEN 系统 SHALL 排除 C_x（停止主动推荐），若无其他有效主张则拒答
+

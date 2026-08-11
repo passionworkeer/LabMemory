@@ -56,8 +56,11 @@ def ask(payload: QAAskIn, db: Session = Depends(get_db), user: User = Depends(ge
         )
         .order_by(Claim.created_at.desc())
     )
+    from app.services.evidence import validate_evidence
     matched: list[tuple[Claim, int]] = []
     for c in qs.all():
+        if not validate_evidence(c)["valid"]:
+            continue  # 证据失效，停止主动推荐（PRD §13.1）
         text = _claim_text(c).lower()
         score = sum(1 for k in keywords if k in text)
         if score > 0:

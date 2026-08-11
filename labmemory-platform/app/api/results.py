@@ -104,6 +104,18 @@ def publish_result(
         raise NotFoundError(f"结果关联实验不存在")
     ensure_experiment_member(db, exp.id, user)
 
+    # 证据失效降级（PRD §13.1）：关联主张证据失效时，仅允许 insufficient_evidence/refuted
+    if t.claim_id:
+        from app.db.models import Claim
+        claim = db.get(Claim, t.claim_id)
+        if claim is not None:
+            from app.services.evidence import validate_evidence
+            ev = validate_evidence(claim)
+            if not ev["valid"] and payload.knowledge_status not in ("insufficient_evidence", "refuted"):
+                raise StateTransitionError(
+                    f"关联主张证据失效（{ev['reason']}），须采用 insufficient_evidence 或 refuted，不可标为 {payload.knowledge_status}"
+                )
+
     res.status = "published"
     res.publisher_id = user.id
     res.published_at = datetime.utcnow()
