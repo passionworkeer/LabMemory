@@ -203,27 +203,39 @@ def confirm_review(
         db.commit()
         return _chain_item(db, m, r)
 
-    # confirmed：生成主张（含参数版本）+ 任务草稿
+    # confirmed：六道闸门 + 冲突检测（PRD §10.1/10.5）决定发布状态
+    from app.services.trust_rules import pick_candidate, run_six_gates, detect_conflicts
     cand = db.query(Candidate).filter(Candidate.meeting_id == m.id).first()
-    claim = _build_claim(db, m, exp, cand, payload.modifications)
+    chosen = pick_candidate(cand)
+    gate = run_six_gates(chosen, payload.modifications, exp, user)
+    new_params = (payload.modifications or {}).get("parameters") or (chosen or {}).get("parameters") or []
+    new_scope = (payload.modifications or {}).get("scope") or (chosen or {}).get("scope")
+    conflicts = detect_conflicts(db, exp.id, new_params, new_scope, user)
+    blocked_by_conflict = any(c.get("severity") == "high" for c in conflicts)
+    publish_status = "pending_supplement" if blocked_by_conflict else gate["publish_status"]
+
+    claim = _build_claim(db, m, exp, cand, payload.modifications, publish_status=publish_status)
     db.add(claim)
     db.flush()
 
-    task = Task(
-        task_id=new_id("T"),
-        meeting_id=m.id,
-        experiment_id=exp.id,
-        claim_id=claim.id,
-        status="draft",
-        planned_params=claim.parameter_version,
-    )
-    db.add(task)
-    db.flush()
+    task = None
+    if publish_status == "current":
+        task = Task(
+            task_id=new_id("T"),
+            meeting_id=m.id,
+            experiment_id=exp.id,
+            claim_id=claim.id,
+            status="draft",
+            planned_params=claim.parameter_version,
+        )
+        db.add(task)
+        db.flush()
 
     db.add(AuditEvent(
         actor_id=user.id, action="review.confirmed",
         target_type="meeting", target_id=m.meeting_id,
-        after={"claim_id": claim.claim_id, "task_id": task.task_id},
+        after={"claim_id": claim.claim_id, "task_id": task.task_id if task else None,
+               "publish_status": publish_status, "gate_failed": gate["report"], "conflicts": conflicts},
         reason=payload.notes or "",
     ))
     db.commit()
@@ -251,6 +263,7 @@ def _build_claim(
     experiment: Experiment,
     candidate: Candidate | None,
     modifications: dict | None,
+    publish_status: str = "current",
 ) -> Claim:
     """从候选 + 复核修改生成主张。参数完全由候选/修改决定，不硬编码。"""
     candidates = (candidate.candidates if candidate else []) or []
@@ -285,23 +298,24 @@ def _build_claim(
             content["title"] = modifications["title"]
 
     # 当前参数版本：取 params 列表组装（保留全部，version 自增）
-    # 同实验同参数的旧 active claim 自动 superseded
-    old_active = (
-        db.query(Claim)
-        .filter(Claim.experiment_id == experiment.id, Claim.status == "current")
-        .order_by(Claim.created_at.desc())
-        .first()
-    )
+    # 同实验同参数的旧 active claim 自动 superseded —— 仅当新主张发布为 current 时才 supersede 旧主张
     version_no = 1
     replaces_id = None
-    if old_active is not None:
-        old_active.status = "superseded"
-        replaces_id = old_active.id
-        old_pv = old_active.parameter_version or {}
-        try:
-            version_no = int(old_pv.get("version", "v1").lstrip("v")) + 1
-        except (ValueError, AttributeError):
-            version_no = 2
+    if publish_status == "current":
+        old_active = (
+            db.query(Claim)
+            .filter(Claim.experiment_id == experiment.id, Claim.status == "current")
+            .order_by(Claim.created_at.desc())
+            .first()
+        )
+        if old_active is not None:
+            old_active.status = "superseded"
+            replaces_id = old_active.id
+            old_pv = old_active.parameter_version or {}
+            try:
+                version_no = int(old_pv.get("version", "v1").lstrip("v")) + 1
+            except (ValueError, AttributeError):
+                version_no = 2
 
     parameter_version = {
         "parameters": params,
@@ -316,7 +330,7 @@ def _build_claim(
         experiment_id=experiment.id,
         content=content,
         parameter_version=parameter_version,
-        status="current",
+        status=publish_status,
         replaces_claim_id=replaces_id,
     )
 

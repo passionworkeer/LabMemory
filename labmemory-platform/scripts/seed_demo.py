@@ -44,6 +44,7 @@ def ensure_user(db, username: str, display: str, role: str) -> User:
             password_hash=hash_password("123456"),
             display_name=display,
             global_role=role,
+            feishu_user_id=f"ou_{username}",  # 供 /api/v1/card/callback 的 open_id 映射
         )
         db.add(u)
         db.flush()

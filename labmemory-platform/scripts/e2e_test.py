@@ -83,6 +83,7 @@ def push_candidate(client, meeting_id: str) -> dict:
                 "title": "温度参数调整 80℃ -> 70℃",
                 "description": "复现实验显示 70℃ 收率优于 80℃",
                 "experiment_ref": "EXP-DEMO-001",
+                "scope": {"material": "Compound-A", "catalyst": "B"},
                 "parameters": [
                     {"name": "temperature", "value": "70", "unit": "℃"},
                     {"name": "concentration", "value": "0.20", "unit": "mol/L"},
@@ -298,7 +299,15 @@ def run_e2e(
         push_candidate(client, meeting_id_2)
         r = client.post(
             f"/api/meetings/{meeting_id_2}/review",
-            json={"decision": "confirmed"},
+            json={"decision": "confirmed", "modifications": {
+                # 参数与当前主张一致，避免数值冲突；干净验证新主张 supersede 旧主张
+                "parameters": [
+                    {"name": "temperature", "value": "70", "unit": "℃"},
+                    {"name": "concentration", "value": "0.25", "unit": "mol/L"},
+                    {"name": "time", "value": "2", "unit": "h"},
+                ],
+                "scope": {"material": "Compound-A", "catalyst": "B"},
+            }},
             headers=_headers_user(lead_token),
         )
         r.raise_for_status()

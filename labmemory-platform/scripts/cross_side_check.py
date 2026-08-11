@@ -76,6 +76,7 @@ def main() -> int:
             "title": "温度 70℃ 复现", "description": "70℃ 收率优于 80℃",
             "experiment_ref": "EXP-DEMO-001",
             "parameters": [{"name": "temperature", "value": "70", "unit": "℃"}],
+            "scope": {"material": "Compound-A", "catalyst": "B"},
             "confidence": 0.92,
             "evidence": [{"speaker": "陈博士", "text": "70℃ 收率更好", "start_offset_sec": 0}],
             "status": "pending_review", "needs_review": True,
@@ -95,7 +96,7 @@ def main() -> int:
     # 3) 卡片回调（编排器 /api/v1/card/callback 转发嵌套信封，approve）
     token = f"tok_{uuid.uuid4().hex[:8]}"
     cb = _post("/api/v1/card/callback", {
-        "token": token, "open_id": "ou_cross_test",
+        "token": token, "open_id": "ou_pi",
         "action": {"value": {"action_type": "approve", "candidate_id": candidate_id}, "tag": "button"},
     })
     ok3 = "status" in cb and "action_audit" in cb and cb.get("candidate_id") == candidate_id

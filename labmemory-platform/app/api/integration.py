@@ -173,19 +173,43 @@ def card_callback(payload: CardCallbackIn, db: Session = Depends(get_db)):
         review.decision = "confirmed"
         review.reviewer_id = actor_id
         review.reviewed_at = datetime.utcnow()
-        claim = _build_claim(db, meeting, exp, cand_row, None)
+        # 六道闸门 + 冲突检测（PRD §10.1/10.5）决定发布状态
+        from app.services.trust_rules import run_six_gates, detect_conflicts, pick_candidate
+        chosen = pick_candidate(cand_row)
+        gate = run_six_gates(chosen, None, exp, actor)
+        new_params = (chosen or {}).get("parameters") or []
+        new_scope = (chosen or {}).get("scope")
+        conflicts = detect_conflicts(db, exp.id, new_params, new_scope, actor)
+        blocked_by_conflict = any(c.get("severity") == "high" for c in conflicts)
+        publish_status = "pending_supplement" if blocked_by_conflict else gate["publish_status"]
+        claim = _build_claim(db, meeting, exp, cand_row, None, publish_status=publish_status)
         db.add(claim)
         db.flush()
-        task = Task(
-            task_id=new_id("T"),
-            meeting_id=meeting.id,
-            experiment_id=exp.id,
-            claim_id=claim.id,
-            status="draft",
-            planned_params=claim.parameter_version,
-        )
-        db.add(task)
-        db.flush()
+        if publish_status == "current":
+            task = Task(
+                task_id=new_id("T"),
+                meeting_id=meeting.id,
+                experiment_id=exp.id,
+                claim_id=claim.id,
+                status="draft",
+                planned_params=claim.parameter_version,
+            )
+            db.add(task)
+            db.flush()
+        else:
+            # 闸门/冲突未过：不建任务，返回 blocked 携带闸门报告（编排器 card_handler 走 blocked 分支）
+            gate_report = gate["report"] + [c["message"] for c in conflicts]
+            db.add(AuditEvent(
+                actor_id=actor_id, action="review.gate_blocked",
+                target_type="meeting", target_id=meeting.meeting_id,
+                after={"claim_id": claim.claim_id, "publish_status": publish_status,
+                       "gate_failed": gate["report"], "conflicts": conflicts},
+            ))
+            resp = {"status": "blocked", "action_audit": "gate_failed", "candidate_id": candidate_id,
+                    "message": "候选发布闸门未过：" + "; ".join(gate_report)}
+            _log_callback(db, token, action_type, candidate_id, resp, actor_id)
+            db.commit()
+            return resp
     else:
         task = (
             db.query(Task)
