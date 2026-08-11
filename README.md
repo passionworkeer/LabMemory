@@ -161,6 +161,8 @@ LabMemory **不重做会议摘要，也不替代 ELN/LIMS**，而是建立"会�
 - ✅ PRD、两份角色说明、模拟数据与评测样例、HTML 海选演示原型
 - 🚧 真实 Aily Skill、状态机 / 六道闸门、行动审计、飞书真实联动、Docker 一键启动、两套 Demo 数据 seed
 
+> 📌 整合后的运行说明、端到端验证证据、整合缺口与 B 计划见 [`INTEGRATION.md`](./INTEGRATION.md)。
+
 ---
 
 ## 10. 本地开发约定
