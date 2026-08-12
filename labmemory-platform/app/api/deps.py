@@ -74,6 +74,26 @@ def ensure_experiment_member(db: Session, experiment_id: int, user: User) -> Exp
     return m
 
 
+def is_experiment_member(db: Session, experiment_id: int, user: User | None) -> bool:
+    """非抛异常版成员校验：admin 或 ExperimentMember 命中为 True；user 为 None 或非成员为 False。
+
+    供卡片回调（返回 blocked dict 而非抛异常）等无法直接用 ensure_experiment_member 的路径使用。
+    """
+    if user is None:
+        return False
+    if user.global_role == "admin":
+        return True
+    return (
+        db.query(ExperimentMember)
+        .filter(
+            ExperimentMember.experiment_id == experiment_id,
+            ExperimentMember.user_id == user.id,
+        )
+        .first()
+        is not None
+    )
+
+
 def visible_experiment_ids(db: Session, user: User) -> set[int] | None:
     """返回用户可见的 experiment_id 集合；None 表示全局可见（admin）。"""
     if user.global_role == "admin":

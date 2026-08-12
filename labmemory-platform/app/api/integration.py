@@ -14,7 +14,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, verify_platform_api_key
+from app.api.deps import get_db, is_experiment_member, verify_platform_api_key
 from app.core.errors import NotFoundError
 from app.core.security import new_id
 from app.db.models import (
@@ -167,6 +167,16 @@ def card_callback(payload: CardCallbackIn, db: Session = Depends(get_db)):
         return resp
 
     # action_type == "approve"：复核确认 → 生成主张/任务草稿 → 六道闸门审计
+    # 成员资格校验（对齐 meetings.py 的 ensure_experiment_member；卡片流此前无此兜底，
+    # 且责任门仅查 reviewer 非 None，挡不住有 open_id 映射的非成员）——非成员审批 blocked
+    if not is_experiment_member(db, exp.id, actor):
+        resp = {"status": "blocked", "action_audit": "no_permission",
+                "candidate_id": candidate_id,
+                "message": f"操作者（open_id={payload.open_id or '(未映射)'}）非该实验成员，无审批权限"}
+        _log_callback(db, token, action_type, candidate_id, resp, actor_id)
+        db.commit()
+        return resp
+
     task = None
     if review and review.status == "pending":
         review.status = "processed"
