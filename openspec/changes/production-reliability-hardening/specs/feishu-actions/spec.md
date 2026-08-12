@@ -25,6 +25,11 @@
 - WHEN 系统发起调用
 - THEN 系统 SHALL 判定失败并在错误信息中指出需要完成 CLI 授权，MUST NOT 返回模拟数据冒充真实结果
 
+#### Scenario: 文档搜索身份
+- GIVEN 系统通过 `docs +search` 查询已发布知识文档
+- WHEN 系统调用 CLI
+- THEN 系统 SHALL 使用 user 身份执行搜索，因为该命令不支持 bot 身份
+
 #### Scenario: 查询资源确实为空
 - GIVEN CLI 返回成功状态且查询结果合法但没有匹配资源
 - WHEN 系统解析响应

@@ -497,7 +497,6 @@ class AilyAdapter:
 
     # ==================== 真实实现 ====================
 
-    @with_retry(interface_name="aily.compile")
     def _real_compile(self, meeting_package: dict) -> dict:
         """真实调用 Aily Skill 编译"""
         # 分段处理
@@ -512,6 +511,7 @@ class AilyAdapter:
         merged = self._merge_and_dedup(segment_results)
         return merged
 
+    @with_retry(interface_name="aily.compile_segment")
     def _call_skill(self, segment: dict, segment_index: int = 0, total_segments: int = 1) -> dict:
         """
         调用单个 Aily Skill

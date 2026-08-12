@@ -11,6 +11,7 @@ from core.config import Config
 from core.utils import now_iso, generate_id, safe_get
 from reliability.integration_log import integration_log
 from reliability.retry_engine import with_retry
+from reliability.idempotency import idempotency_guard
 
 
 class BaseAdapter:
@@ -107,7 +108,6 @@ class BaseAdapter:
             )
             raise
 
-    @with_retry(interface_name="base.batch_add")
     def batch_add_records(self, candidates: List[dict], meeting_title: str = "") -> List[str]:
         """
         批量添加候选记录
@@ -125,8 +125,23 @@ class BaseAdapter:
         try:
             record_ids = []
             for cand in candidates:
-                record_id = self.add_record(cand, meeting_title)
-                record_ids.append(record_id)
+                candidate_id = cand.get("candidate_id", "")
+                recovery_key = f"base_record:{candidate_id}" if candidate_id else ""
+                previous = idempotency_guard.check(recovery_key) if recovery_key else None
+                if previous and previous.get("record_id"):
+                    record_ids.append(previous["record_id"])
+                    continue
+                if recovery_key and not idempotency_guard.acquire(recovery_key):
+                    raise RuntimeError(f"候选 {candidate_id} 的 Base 写入正在处理中")
+                try:
+                    record_id = self.add_record(cand, meeting_title)
+                    record_ids.append(record_id)
+                    if recovery_key:
+                        idempotency_guard.mark(recovery_key, {"record_id": record_id})
+                except Exception:
+                    if recovery_key:
+                        idempotency_guard.release(recovery_key)
+                    raise
 
             integration_log.log(
                 direction="outbound",

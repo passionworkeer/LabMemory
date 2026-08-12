@@ -503,7 +503,21 @@ tar -xzf backup-20260805.tar.gz
 
 Mock 模式跳过验签，启动日志会打印「验签已跳过」。
 
-### Q10: Real 模式报「lark-cli 未安装，请先安装飞书 CLI」？
+### Q10: Real 模式如何确认失败可诊断、资源创建没有假成功？
+
+Real 模式下所有 lark-cli 失败、授权错误、超时和响应格式错误都应在 `data/integration_logs/integration_YYYYMMDD.jsonl` 中留下 `failed` 记录；任务创建必须返回非空 `task_guid`，Base 写入必须返回 `record_id`，文档发布必须返回 `doc_token`。发现失败时先按 `request_id` 检索整条调用链，不要手动重复点击审批按钮。
+
+上线前建议按以下顺序执行：
+
+```bash
+python scripts/health_check.py
+lark-cli minutes +search --query "上线验收" --dry-run --as user
+lark-cli task +create --summary "LabMemory 上线验收任务" --description "验收后可删除" --idempotency-key "labmemory-release-check" --dry-run --as bot
+```
+
+确认失败原因后，修正配置并重试同一业务键；不要删除集成日志和幂等记录来“恢复”真实链路。
+
+### Q11: Real 模式报「lark-cli 未安装，请先安装飞书 CLI」？
 
 **原因**：妙记、任务、卡片、多维表格、云文档均通过 `subprocess` 调用 `lark-cli`，它是 Real 模式的硬依赖。
 

@@ -77,6 +77,14 @@ class IdempotencyGuard:
         except (FileExistsError, OSError):
             return False
 
+    def release(self, idempotency_key: str):
+        """释放尚未完成的原子占位，允许失败操作后续重试。"""
+        key_path = self._get_key_path(idempotency_key)
+        try:
+            key_path.unlink(missing_ok=True)
+        except OSError as e:
+            print(f"[IdempotencyGuard] 释放占位失败: {e}")
+
     def is_processed(self, idempotency_key: str) -> bool:
         """简单判断是否已处理（占位文件存在即视为已处理/处理中）。"""
         return self._get_key_path(idempotency_key).exists()

@@ -281,7 +281,7 @@ class DocsAdapter:
         cmd = [
             "lark-cli", "docs", "+search",
             "--query", doc_type or "LabMemory",
-            "--as", "bot",
+            "--as", "user",
         ]
 
         try:

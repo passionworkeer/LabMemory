@@ -602,6 +602,44 @@ class TestProductionReliability(unittest.TestCase):
             __import__("adapters.docs_adapter", fromlist=["subprocess"]).subprocess.run = original_run
 
 
+    def test_batch_base_reuses_record_for_same_candidate(self):
+        original_mock = base_adapter.mock_mode
+        original_add = base_adapter.add_record
+        calls = []
+        try:
+            base_adapter.mock_mode = True
+            def fake_add(candidate, meeting_title=""):
+                calls.append(candidate["candidate_id"])
+                return "rec_existing"
+            base_adapter.add_record = fake_add
+            candidate = {"candidate_id": "cand_recovery", "title": "测试"}
+            first = base_adapter.batch_add_records([candidate])
+            second = base_adapter.batch_add_records([candidate])
+        finally:
+            base_adapter.add_record = original_add
+            base_adapter.mock_mode = original_mock
+        self.assertEqual(first, ["rec_existing"])
+        self.assertEqual(second, ["rec_existing"])
+        self.assertEqual(calls, ["cand_recovery"])
+
+    def test_approved_card_cli_failure_is_explicit(self):
+        module = __import__("adapters.im_card_adapter", fromlist=["subprocess"])
+        original_run = module.subprocess.run
+        original_mock = im_card_adapter.mock_mode
+        try:
+            im_card_adapter.mock_mode = False
+            def failed_send(cmd, **kwargs):
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="permission denied")
+            module.subprocess.run = failed_send
+            with self.assertRaises(Exception):
+                im_card_adapter.send_approved_card(
+                    "ou_reviewer", {"candidate_id": "cand_1", "title": "测试"}
+                )
+        finally:
+            module.subprocess.run = original_run
+            im_card_adapter.mock_mode = original_mock
+
+
 class TestLarkCliCommandMapping(unittest.TestCase):
     """lark-cli 命令映射测试（拦截 subprocess，不发起真实调用）"""
 
