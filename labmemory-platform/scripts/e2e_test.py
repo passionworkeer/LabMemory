@@ -300,9 +300,10 @@ def run_e2e(
         r = client.post(
             f"/api/meetings/{meeting_id_2}/review",
             json={"decision": "confirmed", "modifications": {
-                # 参数与当前主张一致，避免数值冲突；干净验证新主张 supersede 旧主张
+                # 温度值变更（70→72）：验证经复核确认的值变更走 supersede+升版，
+                # 而非被数值冲突冻结（change refine-numeric-conflict-supersede）
                 "parameters": [
-                    {"name": "temperature", "value": "70", "unit": "℃"},
+                    {"name": "temperature", "value": "72", "unit": "℃"},
                     {"name": "concentration", "value": "0.25", "unit": "mol/L"},
                     {"name": "time", "value": "2", "unit": "h"},
                 ],
@@ -312,6 +313,9 @@ def run_e2e(
         )
         r.raise_for_status()
         chain2 = r.json()
+        assert chain2["claim"]["status"] == "current", (
+            f"值变更应经复核确认 supersede 为 current，而非被数值冲突冻结：{chain2['claim']}"
+        )
         result["steps"].append({
             "step": "second_meeting",
             "new_claim_id": chain2["claim"]["claim_id"],

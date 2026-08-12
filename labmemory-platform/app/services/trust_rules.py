@@ -149,8 +149,19 @@ def detect_conflicts(
         .all()
     )
 
+    # 将被本次发布 supersede 的最新 current（与 _build_claim 的选择一致：
+    # status=current 按 created_at desc 取首条）不参与数值冲突——它会被本次置
+    # superseded，不构成「多个 current 并存」的歧义（见 change
+    # refine-numeric-conflict-supersede：§10.5 ↔ §10.3 reconciliation）。
+    # 仅更早的、不会被替换的 current 同 scope 同参数不同值才判数值冲突冻结。
+    supersede_target_id = (
+        max(existing, key=lambda c: (c.created_at, c.id)).id if existing else None
+    )
+
     # 数值冲突：同 scope 同参数名已有 current 不同值 → 冻结发布
     for ex in existing:
+        if ex.id == supersede_target_id:
+            continue
         ex_pv = ex.parameter_version or {}
         ex_scope = ex_pv.get("scope")
         if new_scope and ex_scope and _scope_eq(new_scope, ex_scope):
