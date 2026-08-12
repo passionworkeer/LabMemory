@@ -12,6 +12,7 @@ from pathlib import Path
 from core.config import Config
 from core.utils import now_iso, generate_id, safe_get
 from reliability.integration_log import integration_log
+from reliability.retry_engine import with_retry
 
 
 # 逐字稿行格式：可选时间戳前缀 + 说话人 + 分隔符 + 正文
@@ -60,6 +61,7 @@ class MinutesAdapter:
     def __init__(self):
         self.mock_data_dir = Path(__file__).parent.parent / "mock"
 
+    @with_retry(interface_name="minutes.search")
     def search(self, query: str, start_time: str = "", end_time: str = "") -> list:
         """
         搜索妙记
@@ -73,6 +75,7 @@ class MinutesAdapter:
 
         return self._real_search(query, start_time, end_time)
 
+    @with_retry(interface_name="minutes.get_detail")
     def get_detail(self, minute_token: str) -> MinutesDetail:
         """
         获取妙记详情
@@ -326,11 +329,13 @@ class MinutesAdapter:
         stdout 只给出 `artifacts.transcript_file` 路径，需要二次读取该文件。
         """
         try:
+            output_dir = Config.DATA_DIR / "minutes" / minute_token
+            output_dir.mkdir(parents=True, exist_ok=True)
             cmd = [
                 "lark-cli", "minutes", "+detail",
                 "--minute-tokens", minute_token,
                 "--summary", "--todo", "--chapter", "--transcript",
-                "--overwrite",
+                "--overwrite", "--output-dir", str(output_dir),
                 "--as", "user",
             ]
 
@@ -412,7 +417,13 @@ class MinutesAdapter:
         无法匹配的行退化为整行正文、说话人未知，MUST NOT 丢弃内容。
         """
         path = Path(transcript_file)
-        if not path.exists():
+        if not path.is_absolute():
+            path = Config.DATA_DIR / "minutes" / path
+        try:
+            path.resolve().relative_to((Config.DATA_DIR / "minutes").resolve())
+        except ValueError:
+            return []
+        if not path.exists() or not path.is_file():
             return []
 
         items: List[TranscriptItem] = []

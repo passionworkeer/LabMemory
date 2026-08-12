@@ -231,9 +231,12 @@ class AilyAdapter:
         :param candidate_package: 候选包
         :return: 校验后的候选包
         """
+        if "candidates" not in candidate_package or not isinstance(candidate_package["candidates"], list):
+            raise ValueError("Aily 输出缺少合法 candidates 数组")
+
         validated_candidates = []
 
-        for cand in candidate_package.get("candidates", []):
+        for cand in candidate_package["candidates"]:
             # 校验必填字段
             if not cand.get("candidate_id"):
                 cand["candidate_id"] = generate_id("cand")
@@ -682,14 +685,8 @@ class AilyAdapter:
             except json.JSONDecodeError:
                 pass
 
-        # 都失败了，返回空结构
-        return {
-            "candidates": [],
-            "risks": [],
-            "action_items": [],
-            "open_questions": [],
-            "raw_output": text,
-        }
+        # 解析失败必须显式失败，不能把外部错误伪装成合法的空候选包。
+        raise ValueError("Aily 输出不是合法 JSON 结构")
 
 
 # 单例

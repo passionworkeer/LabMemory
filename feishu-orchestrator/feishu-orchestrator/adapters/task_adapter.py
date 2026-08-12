@@ -55,6 +55,7 @@ class TaskAdapter:
                     description=full_description,
                     assignee=assignee,
                     due_date=due_date,
+                    idempotency_key=candidate.get("candidate_id", ""),
                 )
 
             integration_log.log(
@@ -76,6 +77,7 @@ class TaskAdapter:
             )
             raise
 
+    @with_retry(interface_name="task.get")
     def get_task(self, task_guid: str) -> dict:
         """获取任务详情"""
         if self.mock_mode:
@@ -86,6 +88,7 @@ class TaskAdapter:
             }
         return self._real_get_task(task_guid)
 
+    @with_retry(interface_name="task.update_status")
     def update_task_status(self, task_guid: str, status: str):
         """更新任务状态"""
         if self.mock_mode:
@@ -143,6 +146,7 @@ class TaskAdapter:
         assignee: str = "",
         due_date: Optional[str] = None,
         followers: Optional[List[str]] = None,
+        idempotency_key: str = "",
     ) -> str:
         """真实创建飞书任务（lark-cli task +create）"""
         try:
@@ -158,6 +162,9 @@ class TaskAdapter:
 
             if due_date:
                 cmd.extend(["--due", due_date])
+
+            if idempotency_key:
+                cmd.extend(["--idempotency-key", idempotency_key])
 
             # CLI 的 --follower 为单值参数，多人需重复传递
             for follower in followers or []:
@@ -175,11 +182,14 @@ class TaskAdapter:
                 raise Exception(f"lark-cli 执行失败: {result.stderr or result.stdout}")
 
             data = json.loads(result.stdout)
-            return (
+            task_guid = (
                 safe_get(data, "data", "task", "guid", default=None)
                 or data.get("task_guid")
                 or data.get("guid", "")
             )
+            if not task_guid:
+                raise ValueError("任务创建响应缺少 task_guid")
+            return task_guid
 
         except FileNotFoundError:
             raise Exception("lark-cli 未安装，请先安装飞书 CLI：npm install -g @larksuite/cli")

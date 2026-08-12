@@ -8,6 +8,8 @@ import json
 import time
 import hashlib
 import subprocess
+import tempfile
+from pathlib import Path
 import unittest
 
 # 添加项目根目录到路径
@@ -27,10 +29,13 @@ from core.webhook_server import (
 from adapters.minutes_adapter import minutes_adapter
 from adapters.aily_adapter import aily_adapter
 from adapters.im_card_adapter import im_card_adapter
+from adapters.base_adapter import base_adapter
+from adapters.docs_adapter import docs_adapter
 from adapters.task_adapter import task_adapter
 from adapters import task_adapter as task_module
 from reliability.integration_log import integration_log
 from reliability.idempotency import idempotency_guard
+from reliability.retry_engine import RetryEngine, RetryableError
 
 
 class TestEventDrivenFlow(unittest.TestCase):
@@ -510,6 +515,93 @@ class TestWebhookSignature(unittest.TestCase):
             Config.RUN_MODE = original
 
 
+class TestProductionReliability(unittest.TestCase):
+    """真实模式可靠性边界测试"""
+
+    def test_retry_engine_retries_explicit_timeout(self):
+        attempts = []
+        engine = RetryEngine(max_retries=1, base_delay=0, jitter=False)
+
+        def operation():
+            attempts.append(1)
+            if len(attempts) == 1:
+                raise RetryableError("subprocess timeout")
+            return "ok"
+
+        self.assertEqual(engine.execute(operation, interface_name="test.timeout"), "ok")
+        self.assertEqual(len(attempts), 2)
+
+    def test_aily_invalid_output_is_not_empty_success(self):
+        with self.assertRaises(Exception):
+            aily_adapter._extract_json_from_text("not valid json")
+
+    def test_aily_missing_candidates_is_invalid(self):
+        with self.assertRaises(Exception):
+            aily_adapter._rule_validate({"risks": []})
+
+    def test_retry_engine_recognizes_chinese_timeout(self):
+        engine = RetryEngine(max_retries=0, base_delay=0, jitter=False)
+        self.assertTrue(engine.is_retryable(Exception("获取任务超时")))
+
+    def test_base_update_cli_failure_is_not_silent(self):
+        original = base_adapter.mock_mode
+        base_adapter.mock_mode = False
+        original_run = __import__("adapters.base_adapter", fromlist=["subprocess"]).subprocess.run
+        try:
+            def failed_run(*args, **kwargs):
+                return subprocess.CompletedProcess(args[0], 1, stdout="", stderr="permission denied")
+            __import__("adapters.base_adapter", fromlist=["subprocess"]).subprocess.run = failed_run
+            with self.assertRaises(Exception):
+                base_adapter._real_update_record("rec_1", {"状态": "approved"})
+        finally:
+            module = __import__("adapters.base_adapter", fromlist=["subprocess"])
+            module.subprocess.run = original_run
+            base_adapter.mock_mode = original
+
+    def test_minutes_detail_uses_isolated_output_dir(self):
+        module = __import__("adapters.minutes_adapter", fromlist=["subprocess"])
+        original_run = module.subprocess.run
+        with tempfile.TemporaryDirectory() as temp_dir:
+            captured = []
+            def successful_detail(cmd, **kwargs):
+                captured.append(cmd)
+                output_dir = Path(cmd[cmd.index("--output-dir") + 1])
+                output_dir.mkdir(parents=True, exist_ok=True)
+                transcript = output_dir / "transcript.txt"
+                transcript.write_text("张三: 结论", encoding="utf-8")
+                return subprocess.CompletedProcess(
+                    cmd, 0,
+                    stdout=json.dumps({"data": {"minutes": [{
+                        "minute_token": "minute_test",
+                        "title": "测试会议",
+                        "artifacts": {"transcript_file": str(transcript)},
+                    }]}}),
+                    stderr="",
+                )
+            module.subprocess.run = successful_detail
+            original_data_dir = Config.DATA_DIR
+            Config.DATA_DIR = Path(temp_dir)
+            try:
+                minutes_adapter._real_get_detail("minute_test")
+            finally:
+                Config.DATA_DIR = original_data_dir
+        module.subprocess.run = original_run
+        self.assertIn("--output-dir", captured[0])
+        output_dir = Path(captured[0][captured[0].index("--output-dir") + 1])
+        self.assertEqual(output_dir.name, "minute_test")
+
+    def test_docs_publish_requires_document_id(self):
+        original_run = __import__("adapters.docs_adapter", fromlist=["subprocess"]).subprocess.run
+        try:
+            def empty_response(*args, **kwargs):
+                return subprocess.CompletedProcess(args[0], 0, stdout='{"data": {}}', stderr="")
+            __import__("adapters.docs_adapter", fromlist=["subprocess"]).subprocess.run = empty_response
+            with self.assertRaises(Exception):
+                docs_adapter._real_publish({"title": "x"}, "meeting")
+        finally:
+            __import__("adapters.docs_adapter", fromlist=["subprocess"]).subprocess.run = original_run
+
+
 class TestLarkCliCommandMapping(unittest.TestCase):
     """lark-cli 命令映射测试（拦截 subprocess，不发起真实调用）"""
 
@@ -529,6 +621,23 @@ class TestLarkCliCommandMapping(unittest.TestCase):
         """无法识别的前缀应直接失败，而不是发出错误的调用"""
         with self.assertRaises(Exception):
             im_card_adapter._receiver_flag("unknown_abc")
+
+    def test_task_create_includes_idempotency_key(self):
+        module = task_module
+        original_run = module.subprocess.run
+        captured = []
+        try:
+            def successful_create(cmd, **kwargs):
+                captured.append(cmd)
+                return subprocess.CompletedProcess(
+                    cmd, 0, stdout=json.dumps({"data": {"task": {"guid": "task_1"}}}), stderr=""
+                )
+            module.subprocess.run = successful_create
+            task_adapter._real_create_task("标题", idempotency_key="cand_1")
+        finally:
+            module.subprocess.run = original_run
+        self.assertIn("--idempotency-key", captured[0])
+        self.assertIn("cand_1", captured[0])
 
     def test_status_dispatch_to_complete_or_reopen(self):
         """完成态 → +complete，其余 → +reopen"""
@@ -574,6 +683,7 @@ def run_all_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestReliability))
     suite.addTests(loader.loadTestsFromTestCase(TestPipelineOrchestrator))
     suite.addTests(loader.loadTestsFromTestCase(TestWebhookSignature))
+    suite.addTests(loader.loadTestsFromTestCase(TestProductionReliability))
     suite.addTests(loader.loadTestsFromTestCase(TestLarkCliCommandMapping))
 
     # 运行测试

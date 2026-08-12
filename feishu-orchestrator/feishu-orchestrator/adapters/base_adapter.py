@@ -156,12 +156,14 @@ class BaseAdapter:
         task_url = f"https://bytedance.larkoffice.com/task/{task_guid}"
         return self.update_record(record_id, {"任务链接": task_url, "更新时间": now_iso()})
 
+    @with_retry(interface_name="base.get_record")
     def get_record(self, record_id: str) -> Optional[dict]:
         """获取记录详情"""
         if self.mock_mode:
             return self._mock_records.get(record_id)
         return self._real_get_record(record_id)
 
+    @with_retry(interface_name="base.list_records")
     def list_records(self, status: Optional[str] = None, limit: int = 100) -> List[dict]:
         """
         查询记录列表
@@ -266,7 +268,10 @@ class BaseAdapter:
 
             output = json.loads(result.stdout)
             records = safe_get(output, "data", "records", default=[]) or []
-            return records[0].get("record_id", "") if records else ""
+            record_id = records[0].get("record_id", "") if records else ""
+            if not record_id:
+                raise ValueError("多维表格创建响应缺少 record_id")
+            return record_id
         except FileNotFoundError:
             raise Exception("lark-cli 未安装，请先安装飞书 CLI：npm install -g @larksuite/cli")
         except json.JSONDecodeError:
@@ -286,9 +291,13 @@ class BaseAdapter:
             result = subprocess.run(
                 cmd, capture_output=True, text=True, encoding="utf-8", timeout=30
             )
-            return result.returncode == 0
-        except Exception:
-            return False
+            if result.returncode != 0:
+                raise Exception(f"lark-cli 执行失败: {result.stderr or result.stdout}")
+            return True
+        except FileNotFoundError:
+            raise Exception("lark-cli 未安装，请先安装飞书 CLI：npm install -g @larksuite/cli")
+        except subprocess.TimeoutExpired:
+            raise Exception("更新多维表格记录超时")
 
     def _real_get_record(self, record_id: str) -> Optional[dict]:
         """真实获取记录（lark-cli base +record-get）"""
@@ -306,12 +315,14 @@ class BaseAdapter:
                 cmd, capture_output=True, text=True, encoding="utf-8", timeout=30
             )
             if result.returncode != 0:
-                return None
+                raise Exception(f"lark-cli 执行失败: {result.stderr or result.stdout}")
             output = json.loads(result.stdout)
             records = safe_get(output, "data", "records", default=[]) or []
             return records[0] if records else None
-        except Exception:
-            return None
+        except FileNotFoundError:
+            raise Exception("lark-cli 未安装，请先安装飞书 CLI：npm install -g @larksuite/cli")
+        except subprocess.TimeoutExpired:
+            raise Exception("获取多维表格记录超时")
 
     def _real_list_records(self, status: Optional[str] = None, limit: int = 100) -> List[dict]:
         """真实查询记录列表（lark-cli base +record-list）"""
@@ -338,13 +349,15 @@ class BaseAdapter:
                 cmd, capture_output=True, text=True, encoding="utf-8", timeout=30
             )
             if result.returncode != 0:
-                return []
+                raise Exception(f"lark-cli 执行失败: {result.stderr or result.stdout}")
             output = json.loads(result.stdout)
             return safe_get(output, "data", "records", default=None) or safe_get(
                 output, "data", "items", default=[]
             )
-        except Exception:
-            return []
+        except FileNotFoundError:
+            raise Exception("lark-cli 未安装，请先安装飞书 CLI：npm install -g @larksuite/cli")
+        except subprocess.TimeoutExpired:
+            raise Exception("查询多维表格记录超时")
 
 
 # 单例

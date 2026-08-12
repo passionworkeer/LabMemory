@@ -72,6 +72,7 @@ class IMCardAdapter:
             )
             raise
 
+    @with_retry(interface_name="im.send_approved_card")
     def send_approved_card(
         self,
         receive_id: str,
@@ -85,6 +86,7 @@ class IMCardAdapter:
             return generate_id("msg")
         return self._real_send_card(receive_id, card)
 
+    @with_retry(interface_name="im.send_blocked_card")
     def send_blocked_card(
         self,
         receive_id: str,
@@ -98,6 +100,7 @@ class IMCardAdapter:
             return generate_id("msg")
         return self._real_send_card(receive_id, card)
 
+    @with_retry(interface_name="im.send_alert_card")
     def send_alert_card(
         self,
         receive_id: str,
@@ -112,6 +115,7 @@ class IMCardAdapter:
             return generate_id("msg")
         return self._real_send_card(receive_id, card)
 
+    @with_retry(interface_name="im.update_card")
     def update_card(self, message_id: str, card: dict):
         """更新卡片内容"""
         if self.mock_mode:

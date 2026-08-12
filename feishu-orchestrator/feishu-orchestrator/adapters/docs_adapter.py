@@ -78,12 +78,14 @@ class DocsAdapter:
         """发布待验证文档"""
         return self.publish_knowledge(candidate, meeting_title, doc_type="pending")
 
+    @with_retry(interface_name="docs.get")
     def get_doc(self, doc_token: str) -> Optional[dict]:
         """获取文档信息"""
         if self.mock_mode:
             return self._mock_docs.get(doc_token)
         return self._real_get_doc(doc_token)
 
+    @with_retry(interface_name="docs.list")
     def list_docs(self, doc_type: Optional[str] = None, limit: int = 100) -> List[dict]:
         """查询文档列表"""
         if self.mock_mode:
@@ -102,7 +104,7 @@ class DocsAdapter:
         }
         prefix = type_prefix.get(doc_type, "📝 知识")
         title = candidate.get("title", "未命名")
-        return f"{prefix} | {title}"
+        return f"LabMemory | {prefix} | {title}"
 
     def _build_doc_content(self, candidate: dict, meeting_title: str, doc_type: str) -> str:
         """构建文档内容（Markdown 格式）"""
@@ -234,6 +236,8 @@ class DocsAdapter:
             url = safe_get(output, "data", "url", default=None) or safe_get(
                 output, "data", "document", "url", default=""
             )
+            if not doc_token:
+                raise ValueError("文档发布响应缺少 document_id")
 
             return {
                 "doc_token": doc_token,
@@ -259,11 +263,13 @@ class DocsAdapter:
                 cmd, capture_output=True, text=True, encoding="utf-8", timeout=60
             )
             if result.returncode != 0:
-                return None
+                raise Exception(f"lark-cli 执行失败: {result.stderr or result.stdout}")
             output = json.loads(result.stdout)
             return safe_get(output, "data", default=None)
-        except Exception:
-            return None
+        except FileNotFoundError:
+            raise Exception("lark-cli 未安装，请先安装飞书 CLI：npm install -g @larksuite/cli")
+        except subprocess.TimeoutExpired:
+            raise Exception("获取文档超时")
 
     def _real_list_docs(self, doc_type: Optional[str] = None, limit: int = 100) -> List[dict]:
         """
@@ -283,12 +289,14 @@ class DocsAdapter:
                 cmd, capture_output=True, text=True, encoding="utf-8", timeout=30
             )
             if result.returncode != 0:
-                return []
+                raise Exception(f"lark-cli 执行失败: {result.stderr or result.stdout}")
             output = json.loads(result.stdout)
             items = safe_get(output, "data", "items", default=[]) or []
             return items[:limit]
-        except Exception:
-            return []
+        except FileNotFoundError:
+            raise Exception("lark-cli 未安装，请先安装飞书 CLI：npm install -g @larksuite/cli")
+        except subprocess.TimeoutExpired:
+            raise Exception("查询文档超时")
 
 
 # 单例

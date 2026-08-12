@@ -61,7 +61,7 @@ class RetryEngine:
 
         # 网络相关错误
         error_msg = str(exception).lower()
-        if any(keyword in error_msg for keyword in ["timeout", "timed out", "connection", "502", "503", "504"]):
+        if any(keyword in error_msg for keyword in ["timeout", "timed out", "超时", "connection", "连接", "502", "503", "504"]):
             return True
 
         return False
