@@ -8,7 +8,7 @@ import subprocess
 from typing import Optional, List, Dict
 
 from core.config import Config
-from core.utils import now_iso, generate_id, truncate_text
+from core.utils import now_iso, generate_id, truncate_text, safe_get
 from reliability.integration_log import integration_log
 from reliability.retry_engine import with_retry
 
@@ -205,54 +205,90 @@ class DocsAdapter:
     # ==================== 真实实现 ====================
 
     def _real_publish(self, candidate: dict, meeting_title: str, doc_type: str) -> dict:
-        """真实发布文档"""
+        """真实发布文档（lark-cli docs +create）"""
         title = self._build_doc_title(candidate, doc_type)
         content = self._build_doc_content(candidate, meeting_title, doc_type)
 
-        # 使用 lark-cli docx +create
+        # CLI 无 docx 域；文档域为 docs，Markdown 正文需声明 --doc-format markdown
         cmd = [
-            "lark-cli", "docx", "+create",
+            "lark-cli", "docs", "+create",
             "--title", title,
             "--content", content,
+            "--doc-format", "markdown",
+            "--as", "bot",
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, encoding="utf-8", timeout=60
+            )
             if result.returncode != 0:
-                raise Exception(f"lark-cli 执行失败: {result.stderr}")
+                raise Exception(f"lark-cli 执行失败: {result.stderr or result.stdout}")
 
             output = json.loads(result.stdout)
-            doc_token = output.get("data", {}).get("document", {}).get("document_id", "")
-            url = f"https://bytedance.larkoffice.com/docx/{doc_token}"
+            doc_token = (
+                safe_get(output, "data", "document", "document_id", default=None)
+                or safe_get(output, "data", "document_id", default=None)
+                or ""
+            )
+            url = safe_get(output, "data", "url", default=None) or safe_get(
+                output, "data", "document", "url", default=""
+            )
 
             return {
                 "doc_token": doc_token,
                 "title": title,
                 "url": url,
             }
+        except FileNotFoundError:
+            raise Exception("lark-cli 未安装，请先安装飞书 CLI：npm install -g @larksuite/cli")
         except json.JSONDecodeError:
             raise Exception(f"解析输出失败: {result.stdout}")
 
     def _real_get_doc(self, doc_token: str) -> Optional[dict]:
-        """真实获取文档信息"""
+        """真实获取文档内容（lark-cli docs +fetch）"""
         cmd = [
-            "lark-cli", "docx", "+get",
-            "--document-id", doc_token,
+            "lark-cli", "docs", "+fetch",
+            "--doc", doc_token,
+            "--doc-format", "markdown",
+            "--as", "bot",
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, encoding="utf-8", timeout=60
+            )
             if result.returncode != 0:
                 return None
             output = json.loads(result.stdout)
-            return output.get("data", {}).get("document", {})
+            return safe_get(output, "data", default=None)
         except Exception:
             return None
 
     def _real_list_docs(self, doc_type: Optional[str] = None, limit: int = 100) -> List[dict]:
-        """真实查询文档列表（简化实现，实际需要用搜索 API）"""
-        # 真实场景下可能需要用云空间搜索或知识库搜索
-        return []
+        """
+        真实查询文档列表（lark-cli docs +search）
+
+        按标题前缀检索本项目发布的知识文档；CLI 无「按类型列出」能力，
+        因此以文档标题中的类型标记作为检索关键词。
+        """
+        cmd = [
+            "lark-cli", "docs", "+search",
+            "--query", doc_type or "LabMemory",
+            "--as", "bot",
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, encoding="utf-8", timeout=30
+            )
+            if result.returncode != 0:
+                return []
+            output = json.loads(result.stdout)
+            items = safe_get(output, "data", "items", default=[]) or []
+            return items[:limit]
+        except Exception:
+            return []
 
 
 # 单例

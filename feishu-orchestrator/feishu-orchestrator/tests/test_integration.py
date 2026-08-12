@@ -7,6 +7,7 @@ import os
 import json
 import time
 import hashlib
+import subprocess
 import unittest
 
 # 添加项目根目录到路径
@@ -27,6 +28,7 @@ from adapters.minutes_adapter import minutes_adapter
 from adapters.aily_adapter import aily_adapter
 from adapters.im_card_adapter import im_card_adapter
 from adapters.task_adapter import task_adapter
+from adapters import task_adapter as task_module
 from reliability.integration_log import integration_log
 from reliability.idempotency import idempotency_guard
 
@@ -508,6 +510,47 @@ class TestWebhookSignature(unittest.TestCase):
             Config.RUN_MODE = original
 
 
+class TestLarkCliCommandMapping(unittest.TestCase):
+    """lark-cli 命令映射测试（拦截 subprocess，不发起真实调用）"""
+
+    def test_receiver_flag_user(self):
+        """ou_ 前缀 → --user-id"""
+        self.assertEqual(
+            im_card_adapter._receiver_flag("ou_abc123"), ["--user-id", "ou_abc123"]
+        )
+
+    def test_receiver_flag_chat(self):
+        """oc_ 前缀 → --chat-id"""
+        self.assertEqual(
+            im_card_adapter._receiver_flag("oc_abc123"), ["--chat-id", "oc_abc123"]
+        )
+
+    def test_receiver_flag_unknown_prefix(self):
+        """无法识别的前缀应直接失败，而不是发出错误的调用"""
+        with self.assertRaises(Exception):
+            im_card_adapter._receiver_flag("unknown_abc")
+
+    def test_status_dispatch_to_complete_or_reopen(self):
+        """完成态 → +complete，其余 → +reopen"""
+        captured = []
+
+        def fake_run(cmd, **kwargs):
+            captured.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout="{}", stderr="")
+
+        original = task_module.subprocess.run
+        task_module.subprocess.run = fake_run
+        try:
+            task_adapter._real_update_task_status("task_guid_1", "success")
+            task_adapter._real_update_task_status("task_guid_1", "pending")
+        finally:
+            task_module.subprocess.run = original
+
+        self.assertIn("+complete", captured[0])
+        self.assertIn("+reopen", captured[1])
+        self.assertIn("--task-id", captured[0])
+
+
 def run_all_tests():
     """运行所有测试"""
     print()
@@ -531,6 +574,7 @@ def run_all_tests():
     suite.addTests(loader.loadTestsFromTestCase(TestReliability))
     suite.addTests(loader.loadTestsFromTestCase(TestPipelineOrchestrator))
     suite.addTests(loader.loadTestsFromTestCase(TestWebhookSignature))
+    suite.addTests(loader.loadTestsFromTestCase(TestLarkCliCommandMapping))
 
     # 运行测试
     runner = unittest.TextTestRunner(verbosity=2)

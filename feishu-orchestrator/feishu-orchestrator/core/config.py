@@ -25,11 +25,10 @@ if env_path.exists():
 class Config:
     """全局配置"""
 
-    # 飞书应用
+    # 飞书应用（仅作标识；飞书调用的凭据由 lark-cli 自身管理，见 DEPLOYMENT.md）
     FEISHU_APP_ID = os.getenv("FEISHU_APP_ID", "")
     FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET", "")
-    FEISHU_TENANT_ACCESS_TOKEN = os.getenv("FEISHU_TENANT_ACCESS_TOKEN", "")
-    FEISHU_USER_ACCESS_TOKEN = os.getenv("FEISHU_USER_ACCESS_TOKEN", "")
+
 
     # Aily
     AILY_API_BASE = os.getenv("AILY_API_BASE", "https://aily.feishu.cn/api")

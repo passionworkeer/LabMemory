@@ -26,7 +26,8 @@
 
 ### 软件要求
 
-- Python 3.8+
+- Python 3.10+（见 `requirements.txt`）
+- **飞书 CLI（`lark-cli`）**：Real 模式的硬依赖。妙记读取、任务创建、卡片下发、多维表格、云文档全部通过 `subprocess` 调用 `lark-cli`，未安装会直接抛「lark-cli 未安装，请先安装飞书 CLI」。仅 Aily 走 HTTP。Mock 模式不需要。
 - 操作系统：Linux / macOS / Windows
 - （可选）systemd / supervisor 用于进程管理
 
@@ -47,7 +48,7 @@ cd feishu-orchestrator
 
 ```bash
 python3 --version
-# 确保 Python >= 3.8
+# 确保 Python >= 3.10
 ```
 
 ### 3. 创建虚拟环境（推荐）
@@ -65,6 +66,21 @@ venv\Scripts\activate  # Windows
 # 运行时依赖见 requirements.txt（当前唯一外部依赖为 python-dotenv）
 pip install -r requirements.txt
 ```
+
+### 5. 安装并授权飞书 CLI（Real 模式必做）
+
+```bash
+# 安装后确认可执行
+lark-cli --version
+
+# 绑定 Hermes 工作区中的飞书应用凭据（复用 Hermes 的 FEISHU_APP_ID）
+lark-cli config bind --source hermes --identity user-default
+
+# 完成 user 身份授权（私有妙记读取必需）
+lark-cli auth login --domain "minutes,task,im,base,docs" --as user
+```
+
+Mock 模式可跳过本步。如果跳过后又切到 `RUN_MODE=real`，链路会在第一次调用妙记 / 卡片 / 任务时抛「lark-cli 未安装，请先安装飞书 CLI」。
 
 ---
 
@@ -105,6 +121,7 @@ https://your-domain.com/webhook/event
 
 **加密策略**：
 - 记录 Encrypt Key 和 Verification Token
+- **Encrypt Key 是 Real 模式验签的必填项**：填入 `CARD_CALLBACK_ENCRYPT_KEY`。留空时 `/webhook/event` 与 `/webhook/card` 会一律返回 401（空密钥会使签名退化为可伪造的固定哈希，因此不放行），启动日志会显式告警
 
 ### 4. 配置卡片回调
 
@@ -146,12 +163,14 @@ https://your-domain.com/webhook/platform
 ### 1. 配置环境变量
 
 ```bash
-# 复制环境变量模板
-cp config/env.example .env
+# 复制环境变量模板到 config/.env
+cp config/env.example config/.env
 
-# 编辑 .env 文件
-vi .env
+# 编辑
+vi config/.env
 ```
+
+> **路径必须是 `config/.env`**。`core/config.py` 只加载 `config/.env`；放到项目根的 `.env` 不会报错，但所有配置读不到、`RUN_MODE` 静默退回 `mock`，看起来接上了实际仍在跑模拟数据。
 
 ### 2. 关键配置项说明
 
@@ -322,7 +341,7 @@ docker run -d \
   -p 8080:8080 \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/logs:/app/logs \
-  --env-file .env \
+  --env-file config/.env \
   --restart always \
   feishu-orchestrator
 
@@ -349,7 +368,7 @@ curl http://localhost:8080/health
 | 日志类型 | 路径 | 说明 |
 |---------|------|------|
 | 服务日志 | `logs/server.log` | Webhook 服务运行日志 |
-| 集成日志 | `data/integration_logs/YYYY-MM-DD.jsonl` | 所有外部调用日志 |
+| 集成日志 | `data/integration_logs/integration_YYYYMMDD.jsonl` | 所有外部调用日志 |
 | 状态数据 | `data/state/` | 状态机状态 |
 | 幂等记录 | `data/idempotency/` | 幂等控制记录 |
 
@@ -357,13 +376,13 @@ curl http://localhost:8080/health
 
 ```bash
 # 查看今天的日志
-cat data/integration_logs/$(date +%Y-%m-%d).jsonl | python -m json.tool
+cat data/integration_logs/integration_$(date +%Y%m%d).jsonl | python -m json.tool
 
 # 查看失败的调用
-grep '"status": "failed"' data/integration_logs/$(date +%Y-%m-%d).jsonl
+grep '"status": "failed"' data/integration_logs/integration_$(date +%Y%m%d).jsonl
 
 # 统计调用次数
-wc -l data/integration_logs/$(date +%Y-%m-%d).jsonl
+wc -l data/integration_logs/integration_$(date +%Y%m%d).jsonl
 ```
 
 ### 4. 管理 CLI
@@ -394,6 +413,7 @@ python scripts/admin_cli.py
 2. 检查服务器防火墙/安全组是否开放了 8080 端口
 3. 检查 URL 验证是否通过（首次配置需要响应 challenge）
 4. 查看服务日志是否有请求到达
+5. 若日志里全是 401，见 Q9（验签）
 
 ### Q2: 妙记读取失败，提示权限不足？
 
@@ -416,12 +436,14 @@ python scripts/admin_cli.py
 ### Q4: 如何切换 Mock / Real 模式？
 
 ```bash
-# 修改 .env 文件
+# 修改 config/.env 文件
 RUN_MODE=mock  # 或 real
 
 # 重启服务
 systemctl restart feishu-orchestrator
 ```
+
+切到 `real` 前先确认三件事：`lark-cli` 已安装并授权、`config/.env`（不是根目录 `.env`）已填凭据、`CARD_CALLBACK_ENCRYPT_KEY` 非空。
 
 ### Q5: 如何重置所有数据？
 
@@ -451,7 +473,7 @@ rm -rf data/integration_logs/*
 # 启动 Mock Platform Server
 python -m mock.mock_server 8081
 
-# 修改 .env
+# 修改 config/.env
 PLATFORM_API_BASE=http://localhost:8081
 PLATFORM_API_KEY=mock-key
 
@@ -469,6 +491,30 @@ tar -czf backup-$(date +%Y%m%d).tar.gz data/
 tar -xzf backup-20260805.tar.gz
 ```
 
+### Q9: Real 模式下 webhook 全部返回 401？
+
+**原因**：验签未通过。Real 模式对 `/webhook/event` 与 `/webhook/card` 强制验签，算法为 `sha256(timestamp + nonce + encrypt_key + raw_body)` 的小写十六进制摘要，取请求头 `X-Lark-Request-Timestamp` / `X-Lark-Request-Nonce` / `X-Lark-Signature`。
+
+**排查顺序**：
+1. `CARD_CALLBACK_ENCRYPT_KEY` 是否为空 —— 空值一律判失败
+2. 该值是否与开发者后台「加密策略」里的 **Encrypt Key** 一致（不是 Verification Token）
+3. 服务器时间是否偏移超过 300 秒 —— 超出时间窗会被判为重放
+4. 是否有反向代理改写了请求体（验签基于原始字节，任何重新序列化都会导致摘要不匹配）
+
+Mock 模式跳过验签，启动日志会打印「验签已跳过」。
+
+### Q10: Real 模式报「lark-cli 未安装，请先安装飞书 CLI」？
+
+**原因**：妙记、任务、卡片、多维表格、云文档均通过 `subprocess` 调用 `lark-cli`，它是 Real 模式的硬依赖。
+
+**解决**：安装后执行 `lark-cli config bind --source hermes --identity user-default` 绑定应用，再执行 `lark-cli auth login --domain "minutes,task,im,base,docs" --as user` 完成用户授权。确认 `lark-cli --version` 可执行且与服务进程同一 PATH（systemd / Docker 环境下尤其注意 PATH、钥匙串与运行用户差异）。
+
+### Q11: 配置填了却不生效，`RUN_MODE=real` 也没切过去？
+
+**原因**：`.env` 放错位置。`core/config.py` 只加载 `config/.env`，放到项目根不会报错，只是全部读不到默认值。
+
+**解决**：确认文件路径为 `config/.env`。用 `python scripts/health_check.py` 查看输出的运行模式是否为 Real。
+
 ---
 
 ## 性能优化建议
@@ -482,7 +528,7 @@ tar -xzf backup-20260805.tar.gz
 
 ## 安全建议
 
-1. **不要把 .env 提交到代码仓库**
+1. **不要把 `config/.env` 提交到代码仓库**（仓库根 `.gitignore` 已忽略 `.env` 与 `config/.env`）
 2. **定期轮换 API Key 和 Secret**
 3. **配置 HTTPS**：使用 Nginx + Let's Encrypt
 4. **限制访问 IP**：飞书回调 IP 白名单

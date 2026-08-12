@@ -8,7 +8,7 @@ import subprocess
 from typing import Optional, List, Dict
 
 from core.config import Config
-from core.utils import now_iso, generate_id
+from core.utils import now_iso, generate_id, safe_get
 from reliability.integration_log import integration_log
 from reliability.retry_engine import with_retry
 
@@ -248,77 +248,101 @@ class BaseAdapter:
             "更新时间": now_iso(),
         }
 
-        # 使用 lark-cli base +create-record
+        # lark-cli base +record-batch-create：字段通过 --json 的 create_records 传入
         cmd = [
-            "lark-cli", "base", "+create-record",
-            "--app-token", self.app_token,
+            "lark-cli", "base", "+record-batch-create",
+            "--base-token", self.app_token,
             "--table-id", self.table_id,
-            "--fields", json.dumps(fields, ensure_ascii=False),
+            "--json", json.dumps({"create_records": [fields]}, ensure_ascii=False),
+            "--as", "bot",
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, encoding="utf-8", timeout=30
+            )
             if result.returncode != 0:
-                raise Exception(f"lark-cli 执行失败: {result.stderr}")
+                raise Exception(f"lark-cli 执行失败: {result.stderr or result.stdout}")
 
             output = json.loads(result.stdout)
-            return output.get("data", {}).get("record", {}).get("record_id", "")
+            records = safe_get(output, "data", "records", default=[]) or []
+            return records[0].get("record_id", "") if records else ""
+        except FileNotFoundError:
+            raise Exception("lark-cli 未安装，请先安装飞书 CLI：npm install -g @larksuite/cli")
         except json.JSONDecodeError:
             raise Exception(f"解析输出失败: {result.stdout}")
 
     def _real_update_record(self, record_id: str, fields: dict) -> bool:
-        """真实更新记录"""
+        """真实更新记录（lark-cli base +record-batch-update）"""
         cmd = [
-            "lark-cli", "base", "+update-record",
-            "--app-token", self.app_token,
+            "lark-cli", "base", "+record-batch-update",
+            "--base-token", self.app_token,
             "--table-id", self.table_id,
-            "--record-id", record_id,
-            "--fields", json.dumps(fields, ensure_ascii=False),
+            "--json", json.dumps({"update_records": {record_id: fields}}, ensure_ascii=False),
+            "--as", "bot",
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, encoding="utf-8", timeout=30
+            )
             return result.returncode == 0
         except Exception:
             return False
 
     def _real_get_record(self, record_id: str) -> Optional[dict]:
-        """真实获取记录"""
+        """真实获取记录（lark-cli base +record-get）"""
         cmd = [
-            "lark-cli", "base", "+get-record",
-            "--app-token", self.app_token,
+            "lark-cli", "base", "+record-get",
+            "--base-token", self.app_token,
             "--table-id", self.table_id,
             "--record-id", record_id,
+            "--format", "json",
+            "--as", "bot",
         ]
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, encoding="utf-8", timeout=30
+            )
             if result.returncode != 0:
                 return None
             output = json.loads(result.stdout)
-            return output.get("data", {}).get("record", {})
+            records = safe_get(output, "data", "records", default=[]) or []
+            return records[0] if records else None
         except Exception:
             return None
 
     def _real_list_records(self, status: Optional[str] = None, limit: int = 100) -> List[dict]:
-        """真实查询记录列表"""
+        """真实查询记录列表（lark-cli base +record-list）"""
         cmd = [
-            "lark-cli", "base", "+list-records",
-            "--app-token", self.app_token,
+            "lark-cli", "base", "+record-list",
+            "--base-token", self.app_token,
             "--table-id", self.table_id,
             "--limit", str(limit),
+            "--format", "json",
+            "--as", "bot",
         ]
 
         if status:
-            filter_str = f'CurrentValue.[状态] = "{status}"'
-            cmd.extend(["--filter", filter_str])
+            filter_json = {
+                "conjunction": "and",
+                "conditions": [
+                    {"field_name": "状态", "operator": "is", "value": [status]}
+                ],
+            }
+            cmd.extend(["--filter-json", json.dumps(filter_json, ensure_ascii=False)])
 
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, encoding="utf-8", timeout=30
+            )
             if result.returncode != 0:
                 return []
             output = json.loads(result.stdout)
-            return output.get("data", {}).get("items", [])
+            return safe_get(output, "data", "records", default=None) or safe_get(
+                output, "data", "items", default=[]
+            )
         except Exception:
             return []
 

@@ -14,6 +14,14 @@ from core.utils import now_iso, generate_id, safe_get
 from reliability.integration_log import integration_log
 
 
+# 逐字稿行格式：可选时间戳前缀 + 说话人 + 分隔符 + 正文
+# 例：[00:01:23] 张三：我们把温度调到 70℃
+_TRANSCRIPT_LINE_RE = re.compile(
+    r"^\s*(?:\[(?P<ts>[\d:：.]+)\]\s*)?(?P<speaker>[^:：\[\]]{1,32})[:：]\s*(?P<text>.+)$"
+)
+
+
+
 @dataclass
 class TranscriptItem:
     """逐字稿条目"""
@@ -277,100 +285,176 @@ class MinutesAdapter:
     # ==================== 真实实现 ====================
 
     def _real_search(self, query: str, start_time: str, end_time: str) -> list:
-        """真实搜索妙记（使用 lark-cli）"""
+        """真实搜索妙记（lark-cli minutes +search）"""
         try:
             cmd = [
                 "lark-cli", "minutes", "+search",
                 "--query", query,
+                "--as", "user",
             ]
             if start_time:
-                cmd.extend(["--start-time", start_time])
+                cmd.extend(["--start", start_time])
             if end_time:
-                cmd.extend(["--end-time", end_time])
+                cmd.extend(["--end", end_time])
 
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=30
             )
 
             if result.returncode != 0:
-                raise Exception(f"lark-cli 执行失败: {result.stderr}")
+                raise Exception(f"lark-cli 执行失败: {result.stderr or result.stdout}")
 
             data = json.loads(result.stdout)
-            return data.get("items", [])
+            return safe_get(data, "data", "minutes", default=None) or data.get("items", [])
 
         except FileNotFoundError:
-            raise Exception("lark-cli 未安装，请先安装飞书 CLI")
+            raise Exception("lark-cli 未安装，请先安装飞书 CLI：npm install -g @larksuite/cli")
         except subprocess.TimeoutExpired:
             raise Exception("搜索妙记超时")
         except json.JSONDecodeError:
             raise Exception("解析妙记搜索结果失败")
 
     def _real_get_detail(self, minute_token: str) -> MinutesDetail:
-        """真实获取妙记详情（使用 lark-cli）"""
+        """
+        真实获取妙记详情（lark-cli minutes +detail）
+
+        注意：`--transcript` 不在 stdout 返回逐字稿正文，而是把文件落盘，
+        stdout 只给出 `artifacts.transcript_file` 路径，需要二次读取该文件。
+        """
         try:
             cmd = [
                 "lark-cli", "minutes", "+detail",
-                "--minute-token", minute_token,
+                "--minute-tokens", minute_token,
+                "--summary", "--todo", "--chapter", "--transcript",
+                "--overwrite",
+                "--as", "user",
             ]
-
-            # 如果有 user token，用 user 身份
-            if Config.FEISHU_USER_ACCESS_TOKEN:
-                cmd.extend(["--user-access-token", Config.FEISHU_USER_ACCESS_TOKEN])
 
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
-                timeout=60
+                encoding="utf-8",
+                timeout=120
             )
 
             if result.returncode != 0:
-                raise Exception(f"lark-cli 执行失败: {result.stderr}")
+                raise Exception(f"lark-cli 执行失败: {result.stderr or result.stdout}")
 
-            data = json.loads(result.stdout)
-            return self._parse_detail_from_json(data)
+            payload = json.loads(result.stdout)
 
         except FileNotFoundError:
-            raise Exception("lark-cli 未安装，请先安装飞书 CLI")
+            raise Exception("lark-cli 未安装，请先安装飞书 CLI：npm install -g @larksuite/cli")
         except subprocess.TimeoutExpired:
             raise Exception("获取妙记详情超时")
         except json.JSONDecodeError:
             raise Exception("解析妙记详情失败")
 
-    def _parse_detail_from_json(self, data: dict) -> MinutesDetail:
-        """从 JSON 数据解析 MinutesDetail"""
-        transcript = []
-        for item in safe_get(data, "content", "transcript", default=[]):
-            transcript.append(TranscriptItem(
-                speaker=item.get("speaker", "未知"),
-                start_offset_sec=int(item.get("start_offset_sec", 0)),
-                end_offset_sec=int(item.get("end_offset_sec", 0)),
-                text=item.get("text", "")
-            ))
+        minutes = safe_get(payload, "data", "minutes", default=None) or payload.get("minutes", [])
+        if not minutes:
+            raise Exception(f"妙记 {minute_token} 未返回详情")
+
+        return self._parse_detail_from_cli(minutes[0], minute_token)
+
+    def _parse_detail_from_cli(self, minute: dict, minute_token: str) -> MinutesDetail:
+        """
+        解析 `minutes +detail` 的单条输出。
+
+        该命令只返回 minute_token / title / note_id / artifacts，
+        不含参会人、起止时间、组织者，这些字段留空由上层显式处理，不得伪造。
+        """
+        artifacts = minute.get("artifacts", {}) or {}
+
+        transcript_file = artifacts.get("transcript_file", "")
+        transcript = self._read_transcript_file(transcript_file) if transcript_file else []
+        if not transcript:
+            raise Exception(
+                f"妙记 {minute_token} 逐字稿缺失"
+                f"（transcript_file={transcript_file or '未返回'}）"
+            )
 
         chapters = []
-        for item in safe_get(data, "content", "chapters", default=[]):
+        for item in artifacts.get("chapters", []) or []:
             chapters.append(Chapter(
                 title=item.get("title", ""),
-                start_offset_sec=int(item.get("start_offset_sec", 0))
+                start_offset_sec=int(item.get("start_offset_sec", 0) or 0)
             ))
 
+        action_items = [
+            item.get("content", "")
+            for item in (artifacts.get("todos", []) or [])
+            if item.get("content")
+        ]
+
         return MinutesDetail(
-            minute_token=data.get("minute_token", ""),
-            title=data.get("title", "未命名会议"),
-            start_time=data.get("start_time"),
-            end_time=data.get("end_time"),
-            organizer=data.get("organizer"),
-            participants=data.get("participants", []),
+            minute_token=minute.get("minute_token", minute_token),
+            title=minute.get("title", "未命名会议"),
+            start_time=None,
+            end_time=None,
+            organizer=None,
+            participants=[],
             transcript=transcript,
             chapters=chapters,
-            summary=safe_get(data, "content", "summary"),
-            action_items=safe_get(data, "content", "action_items", default=[]),
-            source_url=data.get("source_url"),
+            summary=artifacts.get("summary"),
+            action_items=action_items,
+            source_url=minute.get("url", ""),
         )
+
+    def _read_transcript_file(self, transcript_file: str) -> List[TranscriptItem]:
+        """
+        读取落盘的逐字稿文件（默认 ./minutes/{minute_token}/transcript.txt）。
+
+        行格式尚未在真实妙记上验证，因此按「可选时间戳 + 说话人 + 正文」宽松解析，
+        无法匹配的行退化为整行正文、说话人未知，MUST NOT 丢弃内容。
+        """
+        path = Path(transcript_file)
+        if not path.exists():
+            return []
+
+        items: List[TranscriptItem] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+
+            match = _TRANSCRIPT_LINE_RE.match(line)
+            if match:
+                offset = self._parse_timestamp(match.group("ts"))
+                items.append(TranscriptItem(
+                    speaker=match.group("speaker").strip(),
+                    start_offset_sec=offset,
+                    end_offset_sec=offset,
+                    text=match.group("text").strip(),
+                ))
+            else:
+                items.append(TranscriptItem(
+                    speaker="未知",
+                    start_offset_sec=0,
+                    end_offset_sec=0,
+                    text=line,
+                ))
+
+        return items
+
+    @staticmethod
+    def _parse_timestamp(ts: Optional[str]) -> int:
+        """把 HH:MM:SS / MM:SS 形式的时间戳转为秒；无法解析时返回 0"""
+        if not ts:
+            return 0
+
+        parts = ts.replace("：", ":").split(":")
+        seconds = 0
+        try:
+            for part in parts:
+                seconds = seconds * 60 + int(float(part))
+        except ValueError:
+            return 0
+        return seconds
+
 
     def to_meeting_package(self, detail: MinutesDetail, source: str = "feishu_minutes") -> dict:
         """转换为 MeetingPackage 格式"""

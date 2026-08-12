@@ -7,7 +7,7 @@ import subprocess
 from typing import Optional, List
 
 from core.config import Config
-from core.utils import now_iso, generate_id
+from core.utils import now_iso, generate_id, safe_get
 from reliability.integration_log import integration_log
 from reliability.retry_engine import with_retry
 
@@ -17,7 +17,6 @@ class TaskAdapter:
 
     def __init__(self):
         self.mock_mode = Config.is_mock_mode()
-        self.app_token = Config.FEISHU_TENANT_ACCESS_TOKEN
 
     @with_retry(interface_name="task.create")
     def create_from_candidate(self, candidate: dict, meeting_title: str = "", source_url: str = "") -> str:
@@ -145,94 +144,113 @@ class TaskAdapter:
         due_date: Optional[str] = None,
         followers: Optional[List[str]] = None,
     ) -> str:
-        """真实创建飞书任务（使用 lark-cli）"""
+        """真实创建飞书任务（lark-cli task +create）"""
         try:
             cmd = [
                 "lark-cli", "task", "+create",
                 "--summary", summary,
                 "--description", description,
+                "--as", "bot",
             ]
 
             if assignee:
                 cmd.extend(["--assignee", assignee])
 
             if due_date:
-                cmd.extend(["--due-date", due_date])
+                cmd.extend(["--due", due_date])
 
-            if followers:
-                cmd.extend(["--followers", ",".join(followers)])
-
-            if self.app_token:
-                cmd.extend(["--tenant-access-token", self.app_token])
+            # CLI 的 --follower 为单值参数，多人需重复传递
+            for follower in followers or []:
+                cmd.extend(["--follower", follower])
 
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=30
             )
 
             if result.returncode != 0:
-                raise Exception(f"lark-cli 执行失败: {result.stderr}")
+                raise Exception(f"lark-cli 执行失败: {result.stderr or result.stdout}")
 
             data = json.loads(result.stdout)
-            return data.get("task_guid", data.get("guid", ""))
+            return (
+                safe_get(data, "data", "task", "guid", default=None)
+                or data.get("task_guid")
+                or data.get("guid", "")
+            )
 
         except FileNotFoundError:
-            raise Exception("lark-cli 未安装，请先安装飞书 CLI")
+            raise Exception("lark-cli 未安装，请先安装飞书 CLI：npm install -g @larksuite/cli")
         except subprocess.TimeoutExpired:
             raise Exception("创建任务超时")
         except json.JSONDecodeError:
             raise Exception("解析创建任务结果失败")
 
     def _real_get_task(self, task_guid: str) -> dict:
-        """真实获取任务详情"""
+        """
+        真实获取任务详情
+
+        CLI 无 `task +get` 快捷命令，走原始 API 兜底。
+        """
         try:
             cmd = [
-                "lark-cli", "task", "+get",
-                "--task-guid", task_guid,
+                "lark-cli", "api", "GET", f"/open-apis/task/v2/tasks/{task_guid}",
+                "--as", "bot",
             ]
 
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=30
             )
 
             if result.returncode != 0:
-                raise Exception(f"lark-cli 执行失败: {result.stderr}")
+                raise Exception(f"lark-cli 执行失败: {result.stderr or result.stdout}")
 
-            return json.loads(result.stdout)
+            data = json.loads(result.stdout)
+            return safe_get(data, "data", "task", default=None) or data
 
         except FileNotFoundError:
-            raise Exception("lark-cli 未安装，请先安装飞书 CLI")
+            raise Exception("lark-cli 未安装，请先安装飞书 CLI：npm install -g @larksuite/cli")
         except subprocess.TimeoutExpired:
             raise Exception("获取任务超时")
         except json.JSONDecodeError:
             raise Exception("解析任务详情失败")
 
     def _real_update_task_status(self, task_guid: str, status: str):
-        """真实更新任务状态"""
+        """
+        真实更新任务状态
+
+        CLI 的 `task +update` 没有 --status 参数，完成/重开是独立命令，
+        按目标状态分派到 `+complete` / `+reopen`。
+        """
+        completed_states = ("success", "done", "completed", "complete")
+        shortcut = "+complete" if status in completed_states else "+reopen"
+
         try:
             cmd = [
-                "lark-cli", "task", "+update",
-                "--task-guid", task_guid,
-                "--status", status,
+                "lark-cli", "task", shortcut,
+                "--task-id", task_guid,
+                "--as", "bot",
             ]
 
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=30
             )
 
             if result.returncode != 0:
-                raise Exception(f"lark-cli 执行失败: {result.stderr}")
+                raise Exception(f"lark-cli 执行失败: {result.stderr or result.stdout}")
 
         except FileNotFoundError:
-            raise Exception("lark-cli 未安装，请先安装飞书 CLI")
+            raise Exception("lark-cli 未安装，请先安装飞书 CLI：npm install -g @larksuite/cli")
         except subprocess.TimeoutExpired:
             raise Exception("更新任务超时")
 

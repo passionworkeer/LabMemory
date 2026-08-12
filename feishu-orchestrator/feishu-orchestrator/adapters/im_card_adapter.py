@@ -7,7 +7,7 @@ import subprocess
 from typing import Optional, List
 
 from core.config import Config
-from core.utils import now_iso, generate_id
+from core.utils import now_iso, generate_id, safe_get
 from reliability.integration_log import integration_log
 from reliability.retry_engine import with_retry
 
@@ -17,7 +17,6 @@ class IMCardAdapter:
 
     def __init__(self):
         self.mock_mode = Config.is_mock_mode()
-        self.app_token = Config.FEISHU_TENANT_ACCESS_TOKEN
 
     @with_retry(interface_name="im.send_card")
     def send_review_card(
@@ -443,58 +442,81 @@ class IMCardAdapter:
     # ==================== 真实实现 ====================
 
     def _real_send_card(self, receive_id: str, card: dict) -> str:
-        """真实发送卡片（使用 lark-cli）"""
+        """
+        真实发送卡片（lark-cli im +messages-send --msg-type interactive）
+
+        CLI 无 `im +send-card`；收件人按 ID 前缀选择 --user-id / --chat-id。
+        """
         try:
             cmd = [
-                "lark-cli", "im", "+send-card",
-                "--receive-id", receive_id,
-                "--card", json.dumps(card, ensure_ascii=False),
+                "lark-cli", "im", "+messages-send",
+                *self._receiver_flag(receive_id),
+                "--msg-type", "interactive",
+                "--content", json.dumps(card, ensure_ascii=False),
+                "--as", "bot",
             ]
-
-            if self.app_token:
-                cmd.extend(["--tenant-access-token", self.app_token])
 
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=30
             )
 
             if result.returncode != 0:
-                raise Exception(f"lark-cli 执行失败: {result.stderr}")
+                raise Exception(f"lark-cli 执行失败: {result.stderr or result.stdout}")
 
             data = json.loads(result.stdout)
-            return data.get("message_id", "")
+            return safe_get(data, "data", "message_id", default=None) or data.get("message_id", "")
 
         except FileNotFoundError:
-            raise Exception("lark-cli 未安装，请先安装飞书 CLI")
+            raise Exception("lark-cli 未安装，请先安装飞书 CLI：npm install -g @larksuite/cli")
         except subprocess.TimeoutExpired:
             raise Exception("发送卡片超时")
         except json.JSONDecodeError:
             raise Exception("解析发送结果失败")
 
+    @staticmethod
+    def _receiver_flag(receive_id: str) -> List[str]:
+        """按 ID 前缀选择收件人参数：ou_ 为用户，oc_ 为群聊"""
+        if receive_id.startswith("ou_"):
+            return ["--user-id", receive_id]
+        if receive_id.startswith("oc_"):
+            return ["--chat-id", receive_id]
+        raise Exception(
+            f"无法识别收件人 ID 前缀: {receive_id}（需为 ou_ 用户 open_id 或 oc_ 群聊 ID）"
+        )
+
     def _real_update_card(self, message_id: str, card: dict):
-        """真实更新卡片"""
+        """
+        真实更新卡片
+
+        CLI 无更新卡片的快捷命令，走原始 API。
+        """
         try:
             cmd = [
-                "lark-cli", "im", "+update-card",
-                "--message-id", message_id,
-                "--card", json.dumps(card, ensure_ascii=False),
+                "lark-cli", "api", "PATCH", f"/open-apis/im/v1/messages/{message_id}",
+                "--data", json.dumps(
+                    {"content": json.dumps(card, ensure_ascii=False)},
+                    ensure_ascii=False,
+                ),
+                "--as", "bot",
             ]
 
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
                 timeout=30
             )
 
             if result.returncode != 0:
-                raise Exception(f"lark-cli 执行失败: {result.stderr}")
+                raise Exception(f"lark-cli 执行失败: {result.stderr or result.stdout}")
 
         except FileNotFoundError:
-            raise Exception("lark-cli 未安装，请先安装飞书 CLI")
+            raise Exception("lark-cli 未安装，请先安装飞书 CLI：npm install -g @larksuite/cli")
         except subprocess.TimeoutExpired:
             raise Exception("更新卡片超时")
 
