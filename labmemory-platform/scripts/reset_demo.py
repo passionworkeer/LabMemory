@@ -37,7 +37,7 @@ from app.db.session import SessionLocal, engine
 
 
 def clear_business_data() -> None:
-    """清除所有业务数据（会议/候选/主张/任务/审计/结果/事件），保留账号、项目、实验。"""
+    """清除所有业务数据（会议/候选/主张/任务/审计/结果/事件 + RAG 索引），保留账号、项目、实验。"""
     db = SessionLocal()
     try:
         # 按依赖顺序删除（外键约束）
@@ -49,6 +49,16 @@ def clear_business_data() -> None:
         db.query(MeetingReview).delete()
         db.query(Meeting).delete()
         db.query(AuditEvent).delete()
+        # 清空 RAG 索引（业务数据已清，索引也应清空，否则 QA 读取过期引用）
+        try:
+            from app.db.models import EmbeddingChunk
+            db.query(EmbeddingChunk).delete()
+            conn = db.connection().connection
+            conn.execute("DELETE FROM vec_chunks")
+            conn.execute("DELETE FROM chunks_fts")
+            conn.commit()
+        except Exception:
+            pass
         db.commit()
         print("✓ 已清除所有业务数据")
         print("  - 会议、复核、候选")
@@ -56,6 +66,7 @@ def clear_business_data() -> None:
         print("  - 任务、行动审计")
         print("  - 结果、失败边界卡、模型反馈")
         print("  - 审计事件时间线")
+        print("  - RAG 索引（向量 / BM25 / 切片元数据）")
     except Exception:
         db.rollback()
         raise
@@ -79,27 +90,41 @@ def reseed_direct() -> None:
     from scripts.seed_demo import (
         DEMO_USERS,
         ensure_experiment,
+        ensure_experiment_2,
         ensure_project,
         ensure_user,
         seed_demo_data,
+        seed_demo_data_exp2,
     )
 
     db = SessionLocal()
     try:
         users = {u: ensure_user(db, u, d, r) for u, d, r in DEMO_USERS}
         proj = ensure_project(db, users["pi"])
-        exp = ensure_experiment(
-            db,
-            proj,
-            owner=users["lead"],
-            members=[
-                (users["pi"], "pi"),
-                (users["lead"], "lead"),
-                (users["executor"], "executor"),
-            ],
-        )
+        members = [
+            (users["pi"], "pi"),
+            (users["lead"], "lead"),
+            (users["executor"], "executor"),
+        ]
+        exp = ensure_experiment(db, proj, owner=users["lead"], members=members)
+        exp2 = ensure_experiment_2(db, proj, owner=users["lead"], members=members)
         seed_demo_data(db, users, exp)
+        seed_demo_data_exp2(db, users, exp2)
         db.commit()
+
+        # 直接写库绕过了 /v1 接口，需手动重建 RAG 索引，否则 QA 读取过期/缺失索引
+        try:
+            from app.db import vec
+            from app.config import settings
+            from app.services.indexer import reindex_all
+            vec.ensure_vec_tables(db, settings.QWEN_EMBEDDING_DIM)
+            stats = reindex_all(db)
+            db.commit()
+            print(f"✓ RAG 索引已重建：claims={stats['claims']} results={stats['results']} "
+                  f"evidence={stats['evidence']} boundaries={stats['boundaries']}")
+        except Exception as e:
+            print(f"⚠ RAG 索引重建失败（不阻断 seed）：{e}")
+
         print("✓ 直接 seed 演示数据完成（走数据库，非 /v1 接口）")
     except Exception:
         db.rollback()

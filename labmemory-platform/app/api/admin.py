@@ -258,6 +258,23 @@ def _seed_pending_only(db: Session, exp: Experiment, actor: User) -> None:
         db.add(cand)
         db.flush()
 
+    # 实验二：保证重置后护照列表仍可见两个实验（实验本体与成员跨重置保留）
+    exp2 = db.query(Experiment).filter(Experiment.experiment_id == "EXP-DEMO-002").first()
+    if exp2 is not None:
+        from scripts.seed_demo import _make_candidate as _mk_cand, _make_meeting as _mk_mtg
+        m_b = _mk_mtg(
+            db, exp2, "meet_demo_b_pending", "Compound-B 放大到 50L 结晶讨论",
+            now - timedelta(minutes=40),
+            transcript=[
+                {"speaker": "陈工", "start_offset_sec": 0, "end_offset_sec": 12,
+                 "text": "25℃ 工艺稳定，讨论放大到 50L 的传质问题"},
+            ],
+        )
+        _mk_cand(db, m_b, [
+            {"name": "cryst_temp", "value": "25", "unit": "℃"},
+            {"name": "scale", "value": "50", "unit": "L"},
+        ], "25℃ 放大至 50L", "验证传质与收率稳定性")
+
     db.add(AuditEvent(
         actor_id=actor.id, action="admin.reset_demo",
         target_type="system", target_id="EXP-DEMO-001",
@@ -267,109 +284,28 @@ def _seed_pending_only(db: Session, exp: Experiment, actor: User) -> None:
 
 
 def _seed_full_chain(db: Session, exp: Experiment, actor: User) -> None:
-    """完整链路场景：已完成 + 已阻断 + 待复核（直接写库，不依赖前端操作）。
+    """完整链路场景：复用 seed_demo.py 的场景函数，保证「重置为完整链路」与首次 seed 完全一致。
 
-    与 seed_demo.py 的场景保持一致，但通过这里的函数实现。
+    覆盖两个实验的全部状态：已完成/阻断/冻结/待确认/运行中/待发布/已发布/已推翻/已结束。
     """
     from scripts.seed_demo import (
-        _confirm_review,
-        _make_candidate,
-        _make_meeting,
-        _run_audit,
-        _submit_and_publish,
+        ensure_experiment_2,
+        seed_demo_data,
+        seed_demo_data_exp2,
     )
 
-    # 找一个 lead 用户作为复核/发布者
     lead = db.query(User).filter(User.global_role == "lead").first()
     executor = db.query(User).filter(User.global_role == "executor").first()
-    if not lead or not executor:
-        raise HTTPException(status_code=400, detail="缺少 lead / executor 角色用户")
+    pi = db.query(User).filter(User.global_role == "pi").first()
+    if not (lead and executor and pi):
+        raise HTTPException(status_code=400, detail="缺少 pi / lead / executor 角色用户")
 
-    now = datetime.now(timezone.utc)
-
-    # 场景 1：已完成实验链
-    m1 = _make_meeting(
-        db, exp, "meet_full_65c", "Compound-A 60→65℃ 升温评审",
-        now - timedelta(days=2),
-        transcript=[
-            {"speaker": "陈工", "start_offset_sec": 10, "end_offset_sec": 18,
-             "text": "上一轮 60℃ 转化率只有 63%，建议升到 65℃"},
-            {"speaker": "赵负责人", "start_offset_sec": 20, "end_offset_sec": 30,
-             "text": "同意，验收看转化率≥75%且副产物≤6%"},
-        ],
+    users = {"pi": pi, "lead": lead, "executor": executor}
+    exp2 = ensure_experiment_2(
+        db, exp.project, owner=lead, members=[(pi, "pi"), (lead, "lead"), (executor, "executor")]
     )
-    _make_candidate(db, m1, [
-        {"name": "temperature", "value": "65", "unit": "℃"},
-        {"name": "time", "value": "2", "unit": "h"},
-        {"name": "catalyst", "value": "1.0", "unit": "eq"},
-    ], "温度 60→65℃ 升温", "提升转化率")
-    claim1, task1 = _confirm_review(db, m1, exp, lead)
-    _run_audit(db, task1, lead, passed=True)
-    _submit_and_publish(
-        db, task1, claim1, executor, lead,
-        metrics={"conversion": "78%", "byproduct": "9%"},
-        knowledge_status="partially_supported",
-        failure_boundary={
-            "phenomenon": "副产物升至 9%",
-            "trigger_condition": "65℃ / 2h / 1.0 eq",
-            "ruled_out": "物料批次、仪器校准",
-            "root_cause_status": "高温×催化剂当量共同作用（待验证）",
-            "next_step": "65℃ / 0.8 eq 复验",
-        },
-    )
-
-    # 场景 2：80℃ 被阻断任务
-    m2 = _make_meeting(
-        db, exp, "meet_full_80c", "Compound-A 80℃ 暂定参数评审",
-        now - timedelta(days=1),
-        transcript=[
-            {"speaker": "陈工", "start_offset_sec": 5, "end_offset_sec": 15,
-             "text": "暂定尝试 80℃ 看看反应极限"},
-        ],
-    )
-    _make_candidate(db, m2, [
-        {"name": "temperature", "value": "80", "unit": "℃"},
-        {"name": "time", "value": "2", "unit": "h"},
-    ], "温度 80℃ 暂定", "试探反应极限")
-    claim2, task2 = _confirm_review(db, m2, exp, lead)
-    # task2 保持 draft 状态 —— 注意 claim2 此时还是 current
-
-    # 场景 3：70℃ 复现（supersede 80℃）
-    m3 = _make_meeting(
-        db, exp, "meet_full_70c", "Compound-A 70℃ 复现实验评审",
-        now - timedelta(hours=2),
-        transcript=[
-            {"speaker": "陈博士", "start_offset_sec": 10, "end_offset_sec": 18,
-             "text": "复现实验确认 70℃ 收率更高"},
-            {"speaker": "王工程师", "start_offset_sec": 20, "end_offset_sec": 30,
-             "text": "建议温度参数从 80 调整为 70"},
-        ],
-    )
-    _make_candidate(db, m3, [
-        {"name": "temperature", "value": "70", "unit": "℃"},
-        {"name": "concentration", "value": "0.20", "unit": "mol/L"},
-        {"name": "time", "value": "2", "unit": "h"},
-    ], "温度 70℃ 复现", "70℃ 收率优于 80℃")
-    claim3, task3 = _confirm_review(db, m3, exp, lead)
-    # claim3 是 current，claim2 已被 superseded
-    # task2 引用 claim2（旧），审计会阻断
-    _run_audit(db, task2, lead, passed=False)
-    task2.status = "blocked"
-
-    # 场景 4：待复核
-    _make_meeting(
-        db, exp, "meet_full_pending", "Compound-A 催化剂 0.8 eq 复验讨论",
-        now - timedelta(minutes=30),
-        transcript=[
-            {"speaker": "陈工", "start_offset_sec": 0, "end_offset_sec": 10,
-             "text": "副产物偏高，下一轮 catalyst 降到 0.8 eq 试试"},
-        ],
-    )
-    m_pending = db.query(Meeting).filter(Meeting.meeting_id == "meet_full_pending").first()
-    _make_candidate(db, m_pending, [
-        {"name": "temperature", "value": "70", "unit": "℃"},
-        {"name": "catalyst", "value": "0.8", "unit": "eq"},
-    ], "催化剂 0.8 eq 复验", "降低副产物")
+    seed_demo_data(db, users, exp)
+    seed_demo_data_exp2(db, users, exp2)
 
     db.add(AuditEvent(
         actor_id=actor.id, action="admin.reset_demo",
