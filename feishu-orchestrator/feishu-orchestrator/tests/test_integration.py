@@ -720,6 +720,25 @@ class TestLarkCliCommandMapping(unittest.TestCase):
         self.assertIn("--task-id", captured[0])
 
 
+def _reset_file_state():
+    """清空幂等/状态机的文件持久化，保证重复运行从干净态开始。
+
+    idempotency_guard / state_machine / base_adapter 去重均落盘到 ``data/idempotency``
+    与 ``data/state``（md5 文件名、7 天 TTL）。测试用固定键（如 ``test_evt_meeting_001``），
+    若不在套件起点清理，第二次运行首次调用即命中上次残留 → 出现 ``'duplicate'`` 假失败。
+    仅清这两个子目录的 ``*.json``，保留 ``integration_logs``（历史）与 ``minutes``（fixture）。
+    """
+    import glob as _glob
+    for sub in ("idempotency", "state"):
+        d = Config.DATA_DIR / sub
+        d.mkdir(parents=True, exist_ok=True)
+        for f in _glob.glob(str(d / "*.json")):
+            try:
+                os.remove(f)
+            except OSError:
+                pass
+
+
 def run_all_tests():
     """运行所有测试"""
     print()
@@ -730,6 +749,8 @@ def run_all_tests():
 
     # 确保目录存在
     Config.ensure_dirs()
+    # 清空幂等/状态文件持久化，避免固定键跨运行残留导致 'duplicate' 假失败
+    _reset_file_state()
 
     # 创建测试套件
     loader = unittest.TestLoader()
