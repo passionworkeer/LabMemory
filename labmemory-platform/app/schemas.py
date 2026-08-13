@@ -310,6 +310,8 @@ class AuditCompareOut(LabMemoryBase):
 
 class QAAskIn(LabMemoryBase):
     question: str
+    session_id: str | None = None
+    session_title: str | None = None
 
 
 class QACitationOut(LabMemoryBase):
@@ -331,6 +333,53 @@ class QAAnswerOut(LabMemoryBase):
     model_info: dict = {}
     missing_conditions: list[str] = []
     refused: bool = False
+    session_id: str | None = None
+    session_title: str | None = None
+    message_id: int | None = None
+
+
+class QAMessageOut(LabMemoryBase):
+    id: int
+    role: str
+    content: str
+    citations: list[dict] | None = None
+    refused: bool = False
+    retrieval_details: dict | None = None
+    model_info: dict | None = None
+    missing_conditions: list[str] | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class QASessionOut(LabMemoryBase):
+    id: int
+    title: str
+    archived: bool = False
+    last_message_at: datetime | None = None
+    message_count: int = 0
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class QASessionDetailOut(LabMemoryBase):
+    id: int
+    title: str
+    archived: bool = False
+    last_message_at: datetime | None = None
+    created_at: datetime
+    messages: list[QAMessageOut] = []
+
+    class Config:
+        from_attributes = True
+
+
+class QASessionPatchIn(LabMemoryBase):
+    title: str | None = None
+    archived: bool | None = None
 
 
 # === Audit Event (timeline) ===

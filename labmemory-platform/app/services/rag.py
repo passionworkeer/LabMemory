@@ -1,7 +1,8 @@
-"""RAG 编排器：权限前置过滤 -> 状态过滤 -> BM25+向量召回 -> 关系扩展 -> 重排 -> LLM 生成 -> 引用后处理。"""
+"""RAG 编排器：意图门控 -> 权限前置过滤 -> 状态过滤 -> BM25+向量召回 -> 关系扩展 -> 重排 -> LLM 生成 -> 引用后处理。"""
 from __future__ import annotations
 
 import math
+import re
 import time
 from datetime import datetime, timezone
 
@@ -15,10 +16,13 @@ from app.db.models import (
     Experiment,
     ExperimentMember,
     Meeting,
+    QAMessage,
+    QASession,
     Result,
     Task,
     User,
 )
+from app.core.errors import NotFoundError, PermissionDeniedError
 from app.services.embedding import get_embedding_service
 from app.services.indexer import ensure_index_ready
 from app.services.llm import detect_refusal, extract_citation_refs, get_llm_service
@@ -30,6 +34,59 @@ STATUS_WEIGHT = {
     None: 0.5,
     "refuted": 0.2,
 }
+
+
+# === 检索意图门控 ===
+# 确定性规则分类：仅在归一化后整体完全匹配短语表时判定为非知识意图，
+# 其余输入一律 knowledge（fail-safe 向检索倾斜，宁可多检索、不可漏检索）。
+_INTENT_PHRASES: dict[str, frozenset[str]] = {
+    "greeting": frozenset({
+        "你好", "您好", "你们好", "嗨", "哈喽", "在吗", "在么",
+        "早上好", "上午好", "下午好", "晚上好",
+        "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
+    }),
+    "thanks": frozenset({
+        "谢谢", "谢谢你", "谢谢您", "感谢", "多谢", "辛苦了", "辛苦",
+        "thanks", "thank you", "thx",
+    }),
+    "goodbye": frozenset({
+        "再见", "拜拜", "拜", "回头见", "下次见", "晚安",
+        "bye", "bye bye", "goodbye", "good night", "see you",
+    }),
+    "meta": frozenset({
+        "你是谁", "你是什么", "你能做什么", "你会做什么", "你能干什么", "你可以做什么",
+        "你能帮我做什么", "你会什么", "你的功能", "你有什么功能", "你能做啥",
+        "怎么用你", "如何使用你", "介绍你自己", "介绍一下你自己",
+        "who are you", "what are you", "what can you do", "help",
+    }),
+}
+
+# 尾部语气词（剥离后参与匹配）。注意不含「吗」——疑问词，剥离会破坏 fail-safe。
+_TRAILING_PARTICLES = "呀啊呢吧嘛哦哈啦喽咯噢哟哇欸诶嗯"
+_TRAILING_PUNCT_RE = re.compile(r"[。！？!?.,，、…·~～;；:：\s]+$")
+_TRAILING_PARTICLE_RE = re.compile(rf"[{_TRAILING_PARTICLES}]+$")
+
+
+def _normalize_for_intent(text: str) -> str:
+    """意图匹配前归一化：小写、压缩空白、循环剥离尾部标点与语气词（「你好呀！」->「你好」）。"""
+    t = re.sub(r"\s+", " ", text.strip().lower())
+    prev = None
+    while prev != t:
+        prev = t
+        t = _TRAILING_PUNCT_RE.sub("", t)
+        t = _TRAILING_PARTICLE_RE.sub("", t)
+    return t
+
+
+def _classify_intent(question: str) -> str:
+    """返回 greeting / thanks / goodbye / meta / knowledge。混合内容必然落入 knowledge。"""
+    norm = _normalize_for_intent(question)
+    if not norm:
+        return "knowledge"  # 空问题在 ask 入口已拦截，这里兜底
+    for intent, phrases in _INTENT_PHRASES.items():
+        if norm in phrases:
+            return intent
+    return "knowledge"
 
 
 def _user_experiments(db: Session, user: User) -> list[int]:
@@ -213,8 +270,21 @@ def _build_citation(chunk: EmbeddingChunk, ref_label: str, db: Session) -> dict:
     }
 
 
-def ask(db: Session, user: User, question: str) -> dict:
-    """主入口：执行 RAG 问答。返回 QAAnswerOut 兼容 dict。"""
+def ask(
+    db: Session,
+    user: User,
+    question: str,
+    session_id: str | None = None,
+    session_title: str | None = None,
+) -> dict:
+    """主入口：执行 RAG 问答。返回 QAAnswerOut 兼容 dict。
+
+    检索阶段保持单轮无状态；LLM 生成阶段附带本会话最近 QA_HISTORY_TURNS 条历史
+    用于指代消解。每轮 Q&A（含拒答路径）持久化为 QAMessage。
+
+    意图门控：寒暄/元问题直答并照常落库，不触发任何检索阶段；
+    混合内容与拿不准的输入一律走完整检索管线（fail-safe）。
+    """
     t0 = time.time()
     question = (question or "").strip()
     if not question:
@@ -225,6 +295,14 @@ def ask(db: Session, user: User, question: str) -> dict:
             retrieval_details={},
         )
 
+    # 会话解析：缺省新建，传入则校验 owner 与归档状态（直答轮也持久化）
+    session = _resolve_session(db, user, session_id, session_title, question)
+
+    # 步骤 0：意图门控 —— 非知识意图直接作答，跳过嵌入/召回/重排等全部检索阶段
+    intent = _classify_intent(question)
+    if intent != "knowledge":
+        return _finalize(db, session, question, _direct_answer(user, question, intent, t0))
+
     # 启动时若索引为空且 DB 有可索引数据，触发一次全量重建
     try:
         ensure_index_ready(db)
@@ -234,24 +312,30 @@ def ask(db: Session, user: User, question: str) -> dict:
     # 步骤 1：权限前置过滤
     exp_ids = _user_experiments(db, user)
     if not exp_ids:
-        return _refuse(
-            question,
-            reason="no_permission",
-            missing=["无可见实验，请联系 PI 加入项目"],
-            retrieval_details={"permission_filtered_experiments": 0},
+        return _finalize(
+            db, session, question,
+            _refuse(
+                question,
+                reason="no_permission",
+                missing=["无可见实验，请联系 PI 加入项目"],
+                retrieval_details={"permission_filtered_experiments": 0},
+            ),
         )
 
     # 步骤 2：状态过滤
     candidate_ids, candidate_chunks = _candidate_chunk_ids(db, exp_ids)
     if not candidate_ids:
-        return _refuse(
-            question,
-            reason="no_match_after_status_filter",
-            missing=["当前可见实验暂无可检索的已发布知识"],
-            retrieval_details={
-                "permission_filtered_experiments": len(exp_ids),
-                "status_filtered_chunks": 0,
-            },
+        return _finalize(
+            db, session, question,
+            _refuse(
+                question,
+                reason="no_match_after_status_filter",
+                missing=["当前可见实验暂无可检索的已发布知识"],
+                retrieval_details={
+                    "permission_filtered_experiments": len(exp_ids),
+                    "status_filtered_chunks": 0,
+                },
+            ),
         )
     chunks_by_id = {c.chunk_id: c for c in candidate_chunks}
 
@@ -288,39 +372,47 @@ def ask(db: Session, user: User, question: str) -> dict:
     # 步骤 6：重排
     ranked = _rerank(all_candidates, bm25_scores, vec_scores)
     if not ranked:
-        return _refuse(
-            question,
-            reason="no_match_after_status_filter",
-            missing=["检索未命中任何可信证据，请补充实验编号/参数名/适用范围后重试"],
-            retrieval_details={
-                "permission_filtered_experiments": len(exp_ids),
-                "status_filtered_chunks": len(candidate_ids),
-                "bm25_hits": len(bm25_hits),
-                "vector_hits": len(vec_hits),
-                "after_relation_expansion": len(all_candidate_ids),
-                "after_rerank": 0,
-                "top_score": 0.0,
-            },
+        return _finalize(
+            db, session, question,
+            _refuse(
+                question,
+                reason="no_match_after_status_filter",
+                missing=["检索未命中任何可信证据，请补充实验编号/参数名/适用范围后重试"],
+                retrieval_details={
+                    "permission_filtered_experiments": len(exp_ids),
+                    "status_filtered_chunks": len(candidate_ids),
+                    "bm25_hits": len(bm25_hits),
+                    "vector_hits": len(vec_hits),
+                    "vector_available": vec_avail,
+                    "after_relation_expansion": len(all_candidate_ids),
+                    "after_rerank": 0,
+                    "top_score": 0.0,
+                },
+            ),
         )
 
     top_score = ranked[0][1]
     if top_score < settings.RAG_MIN_SCORE:
-        return _refuse(
-            question,
-            reason="score_below_threshold",
-            missing=[
-                f"最高相似度 {top_score:.2f} 低于阈值 {settings.RAG_MIN_SCORE}",
-                "请补充更具体的实验编号、参数名或适用范围",
-            ],
-            retrieval_details={
-                "permission_filtered_experiments": len(exp_ids),
-                "status_filtered_chunks": len(candidate_ids),
-                "bm25_hits": len(bm25_hits),
-                "vector_hits": len(vec_hits),
-                "after_relation_expansion": len(all_candidate_ids),
-                "after_rerank": len(ranked),
-                "top_score": round(top_score, 4),
-            },
+        return _finalize(
+            db, session, question,
+            _refuse(
+                question,
+                reason="score_below_threshold",
+                missing=[
+                    f"最高相似度 {top_score:.2f} 低于阈值 {settings.RAG_MIN_SCORE}",
+                    "请补充更具体的实验编号、参数名或适用范围",
+                ],
+                retrieval_details={
+                    "permission_filtered_experiments": len(exp_ids),
+                    "status_filtered_chunks": len(candidate_ids),
+                    "bm25_hits": len(bm25_hits),
+                    "vector_hits": len(vec_hits),
+                    "vector_available": vec_avail,
+                    "after_relation_expansion": len(all_candidate_ids),
+                    "after_rerank": len(ranked),
+                    "top_score": round(top_score, 4),
+                },
+            ),
         )
 
     # 步骤 7：上下文组装
@@ -337,34 +429,39 @@ def ask(db: Session, user: User, question: str) -> dict:
             }
         )
 
-    # 步骤 8：LLM 生成
+    # 步骤 8：LLM 生成（多轮带历史）
+    history = _load_history(db, session)
     llm = get_llm_service()
-    answer_text, chat_mode = llm.chat(question, context_chunks)
+    answer_text, chat_mode = llm.chat_with_history(question, context_chunks, history)
 
     # 步骤 9：引用后处理
     is_refused, refusal_reason = detect_refusal(answer_text)
     if is_refused:
-        return _refuse(
-            question,
-            reason="llm_refused",
-            missing=[refusal_reason or "大模型判定证据不足"],
-            retrieval_details={
-                "permission_filtered_experiments": len(exp_ids),
-                "status_filtered_chunks": len(candidate_ids),
-                "bm25_hits": len(bm25_hits),
-                "vector_hits": len(vec_hits),
-                "after_relation_expansion": len(all_candidate_ids),
-                "after_rerank": len(ranked),
-                "top_score": round(top_score, 4),
-            },
-            model_info={
-                "embedding_mode": emb_mode,
-                "embedding_model": settings.QWEN_EMBEDDING_MODEL if emb_mode != "hash-fallback" else "hash-fallback",
-                "chat_mode": chat_mode,
-                "chat_model": llm.model_name,
-                "top_k": settings.RAG_TOP_K,
-            },
-            citations=[_build_citation(c, f"C{i}", db) for i, (c, _, _) in enumerate(ranked, 1)],
+        return _finalize(
+            db, session, question,
+            _refuse(
+                question,
+                reason="llm_refused",
+                missing=[refusal_reason or "大模型判定证据不足"],
+                retrieval_details={
+                    "permission_filtered_experiments": len(exp_ids),
+                    "status_filtered_chunks": len(candidate_ids),
+                    "bm25_hits": len(bm25_hits),
+                    "vector_hits": len(vec_hits),
+                    "vector_available": vec_avail,
+                    "after_relation_expansion": len(all_candidate_ids),
+                    "after_rerank": len(ranked),
+                    "top_score": round(top_score, 4),
+                },
+                model_info={
+                    "embedding_mode": emb_mode,
+                    "embedding_model": settings.QWEN_EMBEDDING_MODEL if emb_mode != "hash-fallback" else "hash-fallback",
+                    "chat_mode": chat_mode,
+                    "chat_model": llm.model_name,
+                    "top_k": settings.RAG_TOP_K,
+                },
+                citations=[_build_citation(c, f"C{i}", db) for i, (c, _, _) in enumerate(ranked, 1)],
+            ),
         )
 
     # 提取 LLM 输出中的 [C1] [C2] 引用编号
@@ -384,40 +481,166 @@ def ask(db: Session, user: User, question: str) -> dict:
 
     elapsed = round(time.time() - t0, 3)
 
+    return _finalize(
+        db, session, question,
+        {
+            "question": question,
+            "answer": answer_text,
+            "citations": citations,
+            "retrieval_scope": {
+                "identity": user.display_name,
+                "searched_experiments": len(exp_ids),
+                "status_filter": ["current", "published"],
+                "matched_claims": sum(1 for c in top_chunks if c.chunk_type == "claim"),
+                "top_score": round(top_score, 4),
+                "warning": warning,
+            },
+            "retrieval_details": {
+                "permission_filtered_experiments": len(exp_ids),
+                "status_filtered_chunks": len(candidate_ids),
+                "bm25_hits": len(bm25_hits),
+                "vector_hits": len(vec_hits),
+                "vector_available": vec_avail,
+                "after_relation_expansion": len(all_candidate_ids),
+                "after_rerank": len(ranked),
+                "top_score": round(top_score, 4),
+                "score_breakdown": ranked[0][2] if ranked else {},
+                "elapsed_sec": elapsed,
+            },
+            "model_info": {
+                "embedding_mode": emb_mode,
+                "embedding_model": settings.QWEN_EMBEDDING_MODEL if emb_mode != "hash-fallback" else "hash-fallback",
+                "chat_mode": chat_mode,
+                "chat_model": llm.model_name,
+                "top_k": settings.RAG_TOP_K,
+            },
+            "missing_conditions": [],
+            "refused": False,
+        },
+    )
+
+
+def _direct_answer(user: User, question: str, intent: str, t0: float) -> dict:
+    """寒暄/元问题直答组装：不访问任何实验数据，响应标记 retrieval_skipped。"""
+    llm = get_llm_service()
+    answer_text, chat_mode = llm.chat_direct(question, intent)
     return {
         "question": question,
         "answer": answer_text,
-        "citations": citations,
+        "citations": [],
         "retrieval_scope": {
             "identity": user.display_name,
-            "searched_experiments": len(exp_ids),
-            "status_filter": ["current", "published"],
-            "matched_claims": sum(1 for c in top_chunks if c.chunk_type == "claim"),
-            "top_score": round(top_score, 4),
-            "warning": warning,
+            "intent": intent,
+            "retrieval_skipped": True,
         },
         "retrieval_details": {
-            "permission_filtered_experiments": len(exp_ids),
-            "status_filtered_chunks": len(candidate_ids),
-            "bm25_hits": len(bm25_hits),
-            "vector_hits": len(vec_hits),
-            "vector_available": vec_avail,
-            "after_relation_expansion": len(all_candidate_ids),
-            "after_rerank": len(ranked),
-            "top_score": round(top_score, 4),
-            "score_breakdown": ranked[0][2] if ranked else {},
-            "elapsed_sec": elapsed,
+            "retrieval_skipped": True,
+            "intent": intent,
+            "elapsed_sec": round(time.time() - t0, 3),
         },
         "model_info": {
-            "embedding_mode": emb_mode,
-            "embedding_model": settings.QWEN_EMBEDDING_MODEL if emb_mode != "hash-fallback" else "hash-fallback",
+            "embedding_mode": "skipped",
+            "embedding_model": "skipped",
             "chat_mode": chat_mode,
             "chat_model": llm.model_name,
-            "top_k": settings.RAG_TOP_K,
+            "top_k": 0,
+            "intent": intent,
         },
         "missing_conditions": [],
         "refused": False,
     }
+
+
+def _resolve_session(
+    db: Session,
+    user: User,
+    session_id: str | None,
+    session_title: str | None,
+    question: str,
+) -> QASession:
+    """返回可写的会话对象：缺省新建，传入则校验 owner 与归档状态。"""
+    if not session_id:
+        title = (session_title or question or "").strip()[:128] or "新会话"
+        session = QASession(user_id=user.id, title=title)
+        db.add(session)
+        db.flush()  # 拿到 id
+        db.commit()
+        return session
+    try:
+        sid = int(session_id)
+    except (TypeError, ValueError) as exc:
+        raise NotFoundError(f"会话不存在：{session_id}") from exc
+    session = db.get(QASession, sid)
+    if session is None:
+        raise NotFoundError(f"会话不存在：{session_id}")
+    if session.user_id != user.id:
+        # 故意不区分 403/404，避免泄漏会话存在性
+        raise PermissionDeniedError("无权访问该会话")
+    if session.archived:
+        raise PermissionDeniedError("会话已归档，不可继续追问")
+    return session
+
+
+def _load_history(db: Session, session: QASession) -> list[dict]:
+    """取该会话最近 QA_HISTORY_TURNS 条有效消息，按时间正序返回。
+
+    按 user/assistant 配对过滤整轮：跳过直答轮（retrieval_skipped）与空回答轮。
+    直答轮的 user 消息本身无 retrieval_details 标记，故须按对判断 assistant
+    标记后整对剔除，避免寒暄 user 残留挤占有限的历史名额。多取 2 倍补偿过滤损失。
+    """
+    rows = (
+        db.query(QAMessage)
+        .filter(QAMessage.session_id == session.id)
+        .order_by(QAMessage.id.desc())
+        .limit(settings.QA_HISTORY_TURNS * 2)
+        .all()
+    )
+    rows.reverse()  # 时间正序
+    history: list[dict] = []
+    i = 0
+    while i < len(rows):
+        r = rows[i]
+        if r.role == "user" and i + 1 < len(rows) and rows[i + 1].role == "assistant":
+            asst = rows[i + 1]
+            rd = asst.retrieval_details_json or {}
+            if rd.get("retrieval_skipped") or not (asst.content or "").strip():
+                i += 2  # 整对跳过：直答轮 / 空回答轮
+                continue
+            history.append({"role": "user", "content": (r.content or "").strip()})
+            history.append({"role": "assistant", "content": (asst.content or "").strip()})
+            i += 2
+        else:
+            # 孤儿消息（未配对的 user 或 assistant）：仅保留非空 user
+            content = (r.content or "").strip()
+            if r.role == "user" and content:
+                history.append({"role": "user", "content": content})
+            i += 1
+    return history[-settings.QA_HISTORY_TURNS :]
+
+
+def _finalize(db: Session, session: QASession, question: str, result: dict) -> dict:
+    """持久化本轮 Q&A（user + assistant 两条消息）并回填 session 字段。"""
+    now = datetime.now(timezone.utc)
+    user_msg = QAMessage(session_id=session.id, role="user", content=question)
+    db.add(user_msg)
+    db.flush()
+    assistant_msg = QAMessage(
+        session_id=session.id,
+        role="assistant",
+        content=result.get("answer", ""),
+        citations_json=result.get("citations") or None,
+        refused=bool(result.get("refused")),
+        retrieval_details_json=result.get("retrieval_details") or None,
+        model_info_json=result.get("model_info") or None,
+        missing_conditions_json=result.get("missing_conditions") or None,
+    )
+    db.add(assistant_msg)
+    session.last_message_at = now
+    db.commit()
+    result["session_id"] = str(session.id)
+    result["session_title"] = session.title
+    result["message_id"] = assistant_msg.id
+    return result
 
 
 def _refuse(

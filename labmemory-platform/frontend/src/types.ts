@@ -277,6 +277,10 @@ export interface QARetrievalDetails {
   top_score?: number;
   score_breakdown?: Record<string, number>;
   elapsed_sec?: number;
+  /** 意图门控命中时为 true：本轮直答，未执行任何检索阶段 */
+  retrieval_skipped?: boolean;
+  /** 门控识别的意图：greeting / thanks / goodbye / meta */
+  intent?: string;
 }
 
 export interface QAModelInfo {
@@ -285,6 +289,7 @@ export interface QAModelInfo {
   chat_mode?: string;
   chat_model?: string;
   top_k?: number;
+  intent?: string;
 }
 
 export interface QAAnswerOut {
@@ -296,6 +301,34 @@ export interface QAAnswerOut {
   model_info?: QAModelInfo;
   missing_conditions?: string[];
   refused: boolean;
+  session_id?: string | null;
+  session_title?: string | null;
+  message_id?: number | null;
+}
+
+export interface QAMessageOut {
+  id: number;
+  role: "user" | "assistant";
+  content: string;
+  citations?: QACitation[] | null;
+  refused?: boolean;
+  retrieval_details?: QARetrievalDetails | null;
+  model_info?: QAModelInfo | null;
+  missing_conditions?: string[] | null;
+  created_at: string;
+}
+
+export interface QASessionOut {
+  id: number;
+  title: string;
+  archived: boolean;
+  last_message_at?: string | null;
+  message_count: number;
+  created_at: string;
+}
+
+export interface QASessionDetailOut extends QASessionOut {
+  messages: QAMessageOut[];
 }
 
 export interface ApiError {

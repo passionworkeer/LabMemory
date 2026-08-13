@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     DEEPSEEK_CHAT_MODEL: str = "deepseek-chat"
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
     RAG_ENABLE_LLM: bool = True
+    # 知识问答生成的 max_tokens。推理型模型（如 deepseek-v4-flash）的 reasoning_tokens 计入
+    # completion_tokens，预算不足时 content 会被截断为空串（finish_reason=length），须给足。
+    DEEPSEEK_MAX_TOKENS: int = 4000
+    # 寒暄直答的 max_tokens（回答短，但同样需为 reasoning 预留）
+    DEEPSEEK_DIRECT_MAX_TOKENS: int = 500
 
     # RAG 检索参数
     RAG_TOP_K: int = 5
@@ -67,6 +72,14 @@ class Settings(BaseSettings):
     RAG_VECTOR_WEIGHT: float = 0.35
     RAG_RECENCY_WEIGHT: float = 0.15
     RAG_STATUS_WEIGHT: float = 0.15
+
+    # 可信问答会话与历史
+    # 传给 LLM 的历史消息条数上限（user+assistant 交替，6 条 = 3 轮 Q&A）
+    QA_HISTORY_TURNS: int = 6
+    # 单会话详情响应返回的最大消息数（最旧不返回但仍在库）
+    QA_SESSION_MAX_MESSAGES: int = 200
+    # 会话列表默认分页大小
+    QA_SESSION_LIST_DEFAULT_LIMIT: int = 20
 
     PROJECT_ROOT: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[1])
 

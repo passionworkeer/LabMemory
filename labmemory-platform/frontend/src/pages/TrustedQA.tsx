@@ -1,7 +1,18 @@
-import { useState, useRef, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { apiAskQuestion } from "../api";
-import type { QAAnswerOut, QACitation } from "../types";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import {
+  apiAskQuestion,
+  apiDeleteQASession,
+  apiGetQASession,
+  apiListQASessions,
+  apiPatchQASession,
+} from "../api";
+import type {
+  QAAnswerOut,
+  QACitation,
+  QAMessageOut,
+  QASessionOut,
+} from "../types";
 import { useAuth } from "../store";
 
 interface Msg {
@@ -15,6 +26,19 @@ interface Msg {
   warning?: string | null;
   streamed?: boolean;
   ts: number;
+}
+
+function messageToMsg(m: QAMessageOut): Msg {
+  return {
+    role: m.role === "user" ? "user" : "ai",
+    text: m.content,
+    citations: m.citations ?? undefined,
+    refused: m.refused ?? undefined,
+    retrievalDetails: m.retrieval_details ?? undefined,
+    modelInfo: m.model_info ?? undefined,
+    missingConditions: m.missing_conditions ?? undefined,
+    ts: new Date(m.created_at).getTime(),
+  };
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -53,16 +77,73 @@ const KNOWLEDGE_TAG: Record<string, { label: string; cls: string }> = {
 
 const STAGE_ICONS = ["🔑", "📊", "🔍", "🧠", "🔗", "⚡"];
 
+const INTENT_LABEL: Record<string, string> = {
+  greeting: "寒暄问候",
+  thanks: "致谢",
+  goodbye: "告别",
+  meta: "能力询问",
+};
+
 export default function TrustedQA() {
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastScope, setLastScope] = useState<QAAnswerOut | null>(null);
+  const [sessions, setSessions] = useState<QASessionOut[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const scrollRef = useRef<HTMLDivElement>(null);
   const typingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const streamLockRef = useRef(false);
+
+  const refreshSessions = useCallback(async () => {
+    setSessionsLoading(true);
+    try {
+      const list = await apiListQASessions({ limit: 50 });
+      setSessions(list);
+    } catch {
+      /* 静默：未登录时由路由守卫处理 */
+    } finally {
+      setSessionsLoading(false);
+    }
+  }, []);
+
+  const loadSession = useCallback(async (id: string) => {
+    try {
+      const detail = await apiGetQASession(id);
+      setSessionId(String(detail.id));
+      setMessages(detail.messages.map(messageToMsg));
+      const lastAi = [...detail.messages].reverse().find((m) => m.role === "assistant");
+      if (lastAi) {
+        setLastScope({
+          question: "",
+          answer: lastAi.content,
+          citations: lastAi.citations ?? [],
+          retrieval_scope: {},
+          retrieval_details: lastAi.retrieval_details ?? undefined,
+          model_info: lastAi.model_info ?? undefined,
+          missing_conditions: lastAi.missing_conditions ?? [],
+          refused: lastAi.refused ?? false,
+        } as QAAnswerOut);
+      } else {
+        setLastScope(null);
+      }
+    } catch {
+      /* 会话不存在或越权：静默忽略，留在新建态 */
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshSessions();
+    const sid = searchParams.get("s");
+    if (sid) {
+      loadSession(sid);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -134,8 +215,13 @@ export default function TrustedQA() {
     setMessages((prev) => [...prev, { role: "user", text, ts: Date.now() }]);
     setLoading(true);
     try {
-      const r: QAAnswerOut = await apiAskQuestion(text);
+      const r: QAAnswerOut = await apiAskQuestion(text, sessionId ?? undefined);
       setLastScope(r);
+      // 后端可能新建会话（sessionId 为空时），同步本地状态与 URL
+      if (r.session_id && r.session_id !== sessionId) {
+        setSessionId(r.session_id);
+        setSearchParams({ s: r.session_id }, { replace: true });
+      }
       streamAnswer(
         r.answer,
         r.citations,
@@ -145,6 +231,7 @@ export default function TrustedQA() {
         r.missing_conditions,
         (r.retrieval_scope.warning as string | null) ?? null,
       );
+      refreshSessions();
     } catch (e) {
       setMessages((prev) => [
         ...prev,
@@ -155,12 +242,48 @@ export default function TrustedQA() {
     }
   };
 
-  const clearChat = () => {
+  const newSession = () => {
     if (typingTimer.current) {
       clearInterval(typingTimer.current);
       typingTimer.current = null;
     }
+    setSessionId(null);
     setMessages([]);
+    setLastScope(null);
+    setSearchParams({}, { replace: true });
+  };
+
+  const selectSession = async (id: number) => {
+    if (typingTimer.current) {
+      clearInterval(typingTimer.current);
+      typingTimer.current = null;
+    }
+    const sid = String(id);
+    setSessionId(sid);
+    setSearchParams({ s: sid }, { replace: true });
+    await loadSession(sid);
+  };
+
+  const renameSession = async (id: number, oldTitle: string) => {
+    const title = window.prompt("重命名会话", oldTitle);
+    if (!title || !title.trim() || title === oldTitle) return;
+    try {
+      await apiPatchQASession(id, { title: title.trim() });
+      await refreshSessions();
+    } catch (e) {
+      window.alert(`重命名失败：${(e as Error).message}`);
+    }
+  };
+
+  const deleteSession = async (id: number) => {
+    if (!window.confirm("删除该会话？所有问答历史将一并删除，且不可恢复。")) return;
+    try {
+      await apiDeleteQASession(id);
+      if (sessionId === String(id)) newSession();
+      await refreshSessions();
+    } catch (e) {
+      window.alert(`删除失败：${(e as Error).message}`);
+    }
   };
 
   const suggestions = lastScope?.citations?.length
@@ -178,7 +301,9 @@ export default function TrustedQA() {
         { q: "催化剂 0.8 eq 是否验证？", label: "催化剂用量 · 验证状态" },
       ];
 
+  // 直答轮（retrieval_skipped）不判定降级——未执行检索，模板直答属正常路径
   const isDegraded =
+    !lastScope?.retrieval_details?.retrieval_skipped &&
     !!lastScope?.model_info &&
     (lastScope.model_info.embedding_mode === "hash-fallback" ||
       lastScope.model_info.chat_mode === "template-fallback");
@@ -187,8 +312,110 @@ export default function TrustedQA() {
     <div className="fade-in">
       <div
         className="grid gap-4"
-        style={{ gridTemplateColumns: "minmax(0, 1fr) 340px" }}
+        style={{ gridTemplateColumns: "248px minmax(0, 1fr) 340px" }}
       >
+        {/* 左侧会话列表 */}
+        <div className="card flex flex-col" style={{ height: 680, padding: 0, overflow: "hidden" }}>
+          <div
+            className="flex items-center justify-between"
+            style={{
+              padding: "12px 14px",
+              borderBottom: "1px solid var(--line-light)",
+              background: "linear-gradient(180deg, rgba(250,252,255,0.85) 0%, rgba(255,255,255,0.4) 100%)",
+            }}
+          >
+            <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text)" }}>
+              会话历史
+            </span>
+            <button
+              className="btn sm ghost"
+              onClick={newSession}
+              style={{ fontSize: 12, padding: "2px 8px" }}
+              aria-label="新建会话"
+              title="新建会话"
+            >
+              + 新建
+            </button>
+          </div>
+          <div className="flex-1 overflow-auto" style={{ minHeight: 0 }}>
+            {sessionsLoading && sessions.length === 0 && (
+              <div style={{ padding: "16px", fontSize: 12, color: "var(--muted)" }}>加载中...</div>
+            )}
+            {!sessionsLoading && sessions.length === 0 && (
+              <div style={{ padding: "16px", fontSize: 12, color: "var(--muted)", lineHeight: 1.6 }}>
+                暂无历史会话。提一个问题即可自动创建。
+              </div>
+            )}
+            {sessions.map((s) => {
+              const active = sessionId === String(s.id);
+              return (
+                <div
+                  key={s.id}
+                  onClick={() => selectSession(s.id)}
+                  className="qa-session-row"
+                  style={{
+                    padding: "10px 12px",
+                    cursor: "pointer",
+                    borderBottom: "1px solid var(--line-light)",
+                    background: active ? "var(--blue-soft)" : "transparent",
+                    borderLeft: active ? "3px solid var(--blue)" : "3px solid transparent",
+                    transition: "background 0.12s",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 600,
+                      color: "var(--text)",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      marginBottom: 3,
+                    }}
+                    title={s.title}
+                  >
+                    {s.title || "新会话"}
+                  </div>
+                  <div
+                    className="flex items-center justify-between"
+                    style={{ fontSize: 10.5, color: "var(--muted)" }}
+                  >
+                    <span>
+                      {s.message_count > 0 ? `${s.message_count} 条` : "空"} ·{" "}
+                      {s.last_message_at
+                        ? new Date(s.last_message_at).toLocaleString("zh-CN", {
+                            month: "2-digit",
+                            day: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : "—"}
+                    </span>
+                    <span style={{ display: "flex", gap: 4 }} onClick={(e) => e.stopPropagation()}>
+                      <button
+                        className="btn sm ghost"
+                        style={{ fontSize: 10, padding: "1px 6px" }}
+                        title="重命名"
+                        onClick={() => renameSession(s.id, s.title)}
+                      >
+                        ✎
+                      </button>
+                      <button
+                        className="btn sm ghost"
+                        style={{ fontSize: 10, padding: "1px 6px", color: "var(--red)" }}
+                        title="删除"
+                        onClick={() => deleteSession(s.id)}
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         {/* 对话区 */}
         <div
           className="card flex flex-col"
@@ -211,15 +438,21 @@ export default function TrustedQA() {
                 <div style={{ fontSize: 15, fontWeight: 700, color: "var(--text)" }}>
                   可信知识问答
                 </div>
+                <div style={{ fontSize: 11, color: "var(--muted)" }}>
+                  {sessionId
+                    ? `会话 #${sessionId}${lastScope?.session_title ? ` · ${lastScope.session_title}` : ""}`
+                    : "新会话（首次提问后自动保存）"}
+                </div>
               </div>
             </div>
             {messages.length > 0 && (
               <button
                 className="btn sm ghost"
-                onClick={clearChat}
+                onClick={newSession}
                 style={{ fontSize: 12 }}
+                title="结束当前会话并新建"
               >
-                清空对话
+                新建会话
               </button>
             )}
           </div>
@@ -292,7 +525,7 @@ export default function TrustedQA() {
                   <span className="typing-dot" style={{ animationDelay: "150ms" }} />
                   <span className="typing-dot" style={{ animationDelay: "300ms" }} />
                   <span style={{ fontSize: 12.5, color: "var(--muted)", marginLeft: 4 }}>
-                    检索中...
+                    思考中...
                   </span>
                 </div>
               </div>
@@ -371,51 +604,78 @@ export default function TrustedQA() {
                     marginBottom: 10,
                   }}
                 >
-                  检索阶段
+                  {lastScope.retrieval_details.retrieval_skipped ? "本轮处理" : "检索阶段"}
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-                  <RetrievalStageRow
-                    icon={STAGE_ICONS[0]}
-                    label="权限过滤"
-                    value={lastScope.retrieval_details.permission_filtered_experiments}
-                    hint="可见实验"
-                  />
-                  <RetrievalStageRow
-                    icon={STAGE_ICONS[1]}
-                    label="状态过滤"
-                    value={lastScope.retrieval_details.status_filtered_chunks}
-                    hint="候选切片"
-                  />
-                  <RetrievalStageRow
-                    icon={STAGE_ICONS[2]}
-                    label="BM25 召回"
-                    value={lastScope.retrieval_details.bm25_hits}
-                    hint="关键词命中"
-                  />
-                  <RetrievalStageRow
-                    icon={STAGE_ICONS[3]}
-                    label="向量召回"
-                    value={lastScope.retrieval_details.vector_hits}
-                    hint="语义相似"
-                  />
-                  <RetrievalStageRow
-                    icon={STAGE_ICONS[4]}
-                    label="关系扩展"
-                    value={lastScope.retrieval_details.after_relation_expansion}
-                    hint="含关联结果/证据"
-                  />
-                  <RetrievalStageRow
-                    icon={STAGE_ICONS[5]}
-                    label="重排 Top-K"
-                    value={lastScope.retrieval_details.after_rerank}
-                    hint={
-                      lastScope.retrieval_details.top_score != null
-                        ? `top_score=${lastScope.retrieval_details.top_score.toFixed(3)}`
-                        : undefined
-                    }
-                    highlight
-                  />
-                </div>
+                {lastScope.retrieval_details.retrieval_skipped ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 9,
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      background: "var(--blue-soft)",
+                      border: "1px solid #d9e5ff",
+                    }}
+                  >
+                    <span style={{ fontSize: 13, width: 16, textAlign: "center" }}>💬</span>
+                    <span style={{ flex: 1, fontSize: 12, color: "var(--text)", fontWeight: 600 }}>
+                      意图识别
+                      {lastScope.retrieval_details.intent &&
+                        ` · ${INTENT_LABEL[lastScope.retrieval_details.intent] ?? lastScope.retrieval_details.intent}`}
+                    </span>
+                    <span
+                      className="tag blue"
+                      style={{ fontSize: 10.5, padding: "1px 7px", flexShrink: 0 }}
+                    >
+                      无需检索
+                    </span>
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                    <RetrievalStageRow
+                      icon={STAGE_ICONS[0]}
+                      label="权限过滤"
+                      value={lastScope.retrieval_details.permission_filtered_experiments}
+                      hint="可见实验"
+                    />
+                    <RetrievalStageRow
+                      icon={STAGE_ICONS[1]}
+                      label="状态过滤"
+                      value={lastScope.retrieval_details.status_filtered_chunks}
+                      hint="候选切片"
+                    />
+                    <RetrievalStageRow
+                      icon={STAGE_ICONS[2]}
+                      label="BM25 召回"
+                      value={lastScope.retrieval_details.bm25_hits}
+                      hint="关键词命中"
+                    />
+                    <RetrievalStageRow
+                      icon={STAGE_ICONS[3]}
+                      label="向量召回"
+                      value={lastScope.retrieval_details.vector_hits}
+                      hint="语义相似"
+                    />
+                    <RetrievalStageRow
+                      icon={STAGE_ICONS[4]}
+                      label="关系扩展"
+                      value={lastScope.retrieval_details.after_relation_expansion}
+                      hint="含关联结果/证据"
+                    />
+                    <RetrievalStageRow
+                      icon={STAGE_ICONS[5]}
+                      label="重排 Top-K"
+                      value={lastScope.retrieval_details.after_rerank}
+                      hint={
+                        lastScope.retrieval_details.top_score != null
+                          ? `top_score=${lastScope.retrieval_details.top_score.toFixed(3)}`
+                          : undefined
+                      }
+                      highlight
+                    />
+                  </div>
+                )}
                 {lastScope.retrieval_details.elapsed_sec != null && (
                   <div
                     style={{

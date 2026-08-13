@@ -9,6 +9,8 @@ import type {
   PassportSummaryOut,
   ProjectOut,
   QAAnswerOut,
+  QASessionDetailOut,
+  QASessionOut,
   ResultOut,
   TaskOut,
   User,
@@ -205,11 +207,47 @@ export const apiGetPassport = (experimentId: string) =>
   request<ExperimentPassport>(`/api/experiments/${experimentId}/passport`);
 
 // === QA ===
-export const apiAskQuestion = (question: string) =>
+export const apiAskQuestion = (
+  question: string,
+  sessionId?: string | null,
+  sessionTitle?: string | null,
+) =>
   request<QAAnswerOut>("/api/qa/ask", {
     method: "POST",
-    body: JSON.stringify({ question }),
+    body: JSON.stringify({
+      question,
+      ...(sessionId ? { session_id: sessionId } : {}),
+      ...(sessionTitle ? { session_title: sessionTitle } : {}),
+    }),
   });
+
+export const apiListQASessions = (params?: {
+  limit?: number;
+  offset?: number;
+  includeArchived?: boolean;
+}) =>
+  request<QASessionOut[]>(
+    `/api/qa/sessions?${new URLSearchParams({
+      ...(params?.limit ? { limit: String(params.limit) } : {}),
+      ...(params?.offset ? { offset: String(params.offset) } : {}),
+      ...(params?.includeArchived ? { include_archived: "true" } : {}),
+    })}`,
+  );
+
+export const apiGetQASession = (id: number | string) =>
+  request<QASessionDetailOut>(`/api/qa/sessions/${id}`);
+
+export const apiPatchQASession = (
+  id: number | string,
+  patch: { title?: string; archived?: boolean },
+) =>
+  request<QASessionOut>(`/api/qa/sessions/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+
+export const apiDeleteQASession = (id: number | string) =>
+  request<void>(`/api/qa/sessions/${id}`, { method: "DELETE" });
 
 // === Admin ===
 export const apiResetDemo = (mode: "clear" | "pending" | "full") =>

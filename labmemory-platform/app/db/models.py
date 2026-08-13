@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base, IDMixin, TimestampMixin
@@ -250,3 +250,39 @@ class EmbeddingChunk(Base, IDMixin, TimestampMixin):
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     metadata_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     embedding_model: Mapped[str] = mapped_column(String(64), default="hash-fallback", nullable=False)
+
+
+# === 可信问答会话与历史 ===
+
+class QASession(Base, IDMixin, TimestampMixin):
+    """用户级 QA 会话壳：按 user_id 隔离，软删归档不进默认列表。"""
+    __tablename__ = "qa_sessions"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(128), nullable=False)
+    archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+
+    messages: Mapped[list[QAMessage]] = relationship(
+        back_populates="session",
+        cascade="all, delete-orphan",
+        order_by="QAMessage.id",
+    )
+
+
+class QAMessage(Base, IDMixin, TimestampMixin):
+    """单轮 Q&A 持久化记录：user 消息与 assistant 消息各一条；刷新可回放。"""
+    __tablename__ = "qa_messages"
+
+    session_id: Mapped[int] = mapped_column(
+        ForeignKey("qa_sessions.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role: Mapped[str] = mapped_column(String(16), nullable=False)  # user / assistant
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    citations_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    refused: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    retrieval_details_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    model_info_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    missing_conditions_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    session: Mapped[QASession] = relationship(back_populates="messages")

@@ -75,6 +75,57 @@ def test_qa_degrades_without_vector_not_503(client: TestClient):
     # R4：relation_expand 走字符串 meeting_id 关联证据，整个过程不抛错（QA 已正常返回即间接验证）
 
 
+# ---------------- 检索意图门控 ----------------
+def test_qa_smalltalk_skips_retrieval(client: TestClient):
+    """意图门控：寒暄直答，不触发任何检索阶段（不嵌入/不召回），且照常落库。"""
+    token = _login(client, "pi")
+    r = client.post("/api/qa/ask", json={"question": "你好"}, headers=_headers_user(token))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["refused"] is False, "寒暄直答不得拒答"
+    assert body["citations"] == [], "直答轮不得携带引用"
+    assert body["answer"].strip(), "直答应返回非空文本"
+    rd = body["retrieval_details"]
+    assert rd.get("retrieval_skipped") is True
+    assert rd.get("intent") == "greeting"
+    # 直答轮不得以 0 值冒充真实检索阶段计数
+    assert "bm25_hits" not in rd and "vector_hits" not in rd
+    assert body["model_info"]["embedding_mode"] == "skipped", "直答轮未执行嵌入"
+    # 直答轮照常持久化（user + assistant 两条）
+    sid = body["session_id"]
+    r2 = client.get(f"/api/qa/sessions/{sid}", headers=_headers_user(token))
+    assert r2.status_code == 200, r2.text
+    msgs = r2.json()["messages"]
+    assert [m["role"] for m in msgs] == ["user", "assistant"]
+    assert msgs[1]["retrieval_details"].get("retrieval_skipped") is True, "刷新后应无损回放直答轮"
+
+
+def test_qa_thanks_goodbye_meta_skip_retrieval(client: TestClient):
+    """感谢/告别/能力询问均直答并标记对应意图。"""
+    token = _login(client, "pi")
+    for text, intent in [("谢谢", "thanks"), ("再见", "goodbye"), ("你能做什么", "meta")]:
+        r = client.post("/api/qa/ask", json={"question": text}, headers=_headers_user(token))
+        assert r.status_code == 200, f"{text}: {r.text}"
+        body = r.json()
+        assert body["refused"] is False, text
+        assert body["retrieval_details"].get("retrieval_skipped") is True, text
+        assert body["retrieval_details"].get("intent") == intent, text
+
+
+def test_qa_mixed_content_failsafe_to_retrieval(client: TestClient):
+    """fail-safe：寒暄+知识混合内容必须走完整检索管线，不得直答寒暄而漏掉知识部分。"""
+    token = _login(client, "pi")
+    r = client.post(
+        "/api/qa/ask",
+        json={"question": "你好，Compound-A 温度参数"},
+        headers=_headers_user(token),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["retrieval_details"].get("retrieval_skipped") is not True
+    assert "bm25_hits" in body["retrieval_details"], "混合内容必须走完整检索管线"
+
+
 # ---------------- B2 ----------------
 def _running_task(client: TestClient, token_pi: str, token_executor: str, experiment_id: str = "EXP-DEMO-001") -> str:
     """推一个会议 → 复核确认 → 审批 → 资源 → 失败边界确认 → 审计通过 → 启动，返回 running 态 task_id。"""

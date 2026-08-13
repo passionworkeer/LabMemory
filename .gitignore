@@ -1,5 +1,6 @@
 # 内部智能体记忆/缓存（不入库）
 .workbuddy/
+.claude/settings.json
 
 # 操作系统/编辑器临时文件
 .DS_Store
