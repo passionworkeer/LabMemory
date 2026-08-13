@@ -331,7 +331,7 @@ class MinutesAdapter:
         try:
             output_dir = Config.DATA_DIR / "minutes" / minute_token
             output_dir.mkdir(parents=True, exist_ok=True)
-            cli_output_dir = Path("data") / "minutes" / minute_token
+            cli_output_dir = output_dir  # 基于 Config.DATA_DIR，与落盘/读取目录一致，不依赖 cwd
             cmd = [
                 Config.get_lark_cli_command(), "minutes", "+detail",
                 "--minute-tokens", minute_token,
@@ -418,6 +418,8 @@ class MinutesAdapter:
         行格式尚未在真实妙记上验证，因此按「可选时间戳 + 说话人 + 正文」宽松解析，
         无法匹配的行退化为整行正文、说话人未知，MUST NOT 丢弃内容。
         """
+        # transcript_file 由 lark-cli 基于 --output-dir（Config.DATA_DIR 基绝对路径）返回；
+        # is_absolute 时直接采用，相对路径仅作回退拼到 DATA_DIR/minutes 下，MUST NOT 与返回路径前缀重复。
         path = Path(transcript_file)
         if not path.is_absolute():
             path = Config.DATA_DIR / "minutes" / path

@@ -58,6 +58,7 @@ feishu-orchestrator/feishu-orchestrator/config/.env
 feishu-orchestrator/feishu-orchestrator/data/idempotency/
 feishu-orchestrator/feishu-orchestrator/data/state/
 feishu-orchestrator/feishu-orchestrator/data/integration_logs/
+feishu-orchestrator/feishu-orchestrator/data/minutes/
 feishu-orchestrator/feishu-orchestrator/logs/
 *.jsonl
 

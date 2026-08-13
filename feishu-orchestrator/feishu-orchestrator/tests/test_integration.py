@@ -604,13 +604,14 @@ class TestProductionReliability(unittest.TestCase):
             Config.DATA_DIR = Path(temp_dir)
             try:
                 minutes_adapter._real_get_detail("minute_test")
+                # --output-dir 必须基于 Config.DATA_DIR（稳定隔离路径），与逐字稿落盘/读取目录一致
+                self.assertIn("--output-dir", captured[0])
+                output_dir = Path(captured[0][captured[0].index("--output-dir") + 1])
+                self.assertEqual(output_dir, Config.DATA_DIR / "minutes" / "minute_test")
+                self.assertEqual(captured[0][captured[0].index("--as") + 1], "user")
             finally:
                 Config.DATA_DIR = original_data_dir
         module.subprocess.run = original_run
-        self.assertIn("--output-dir", captured[0])
-        output_dir = Path(captured[0][captured[0].index("--output-dir") + 1])
-        self.assertEqual(output_dir.as_posix(), "data/minutes/minute_test")
-        self.assertEqual(captured[0][captured[0].index("--as") + 1], "user")
 
     def test_docs_publish_requires_document_id(self):
         original_run = __import__("adapters.docs_adapter", fromlist=["subprocess"]).subprocess.run

@@ -267,7 +267,7 @@ python scripts/health_check.py     # → 11 通过 / 0 失败
 > **2026-08-13 更新**：反向通路已落地（OpenSpec change `add-platform-feishu-reverse-linkage`）。
 > - 编排器新增 `POST /webhook/platform`（`core/platform_action_handler.py` + `webhook_server.py`），按 `action_type` 分派到既有适配器，以 `idempotency_key` 幂等；mock 限 localhost、real 校验 `Authorization: Bearer {PLATFORM_API_KEY}`。
 > - 平台新增 `app/services/feishu_client.py`，四个触发点（复核待办→`send_card`、任务启动→`create_task`、知识发布→`publish_doc`、审计阻断→`notify`）均为非阻断 fire-and-forget；`FEISHU_ORCHESTRATOR_MODE=mock` 时不真调。
-> - 验证：`python -m scripts.reverse_linkage_check`（7/7，编排器 `RUN_MODE=mock` 即可，无需真飞书凭证）；平台 `pytest` 通过；编排器集成测试 37/38（剩余 1 个 `production-reliability-hardening` 既有未归档测试 `test_minutes_detail_uses_isolated_output_dir` 失败，与本 change 无关）。
+> - 验证：`python -m scripts.reverse_linkage_check`（7/7，编排器 `RUN_MODE=mock` 即可，无需真飞书凭证）；平台 `pytest` 通过；编排器集成测试 38/38（原 `test_minutes_detail_uses_isolated_output_dir` 的 1 个既有 error 已由 change `fix-minutes-transcript-output-dir-consistency` 修复）。
 > - 真飞书落地仍需真 `FEISHU_APP_ID/SECRET` + `RUN_MODE=real`（上线前人工验收）。
 
 契约 `FeishuActionRequest`（平台 → 编排器，`send_card` / `create_task` / `update_base` / `publish_doc` / `notify`）描述了平台主动请求飞书侧执行动作的方向。**历史背景**（实现前勘查结论）：此方向曾两侧均未实现，且正向流程已覆盖建任务，故曾作为后续工作保留。
