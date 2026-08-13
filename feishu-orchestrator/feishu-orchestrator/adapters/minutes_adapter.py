@@ -291,7 +291,7 @@ class MinutesAdapter:
         """真实搜索妙记（lark-cli minutes +search）"""
         try:
             cmd = [
-                "lark-cli", "minutes", "+search",
+                Config.get_lark_cli_command(), "minutes", "+search",
                 "--query", query,
                 "--as", "user",
             ]
@@ -331,11 +331,12 @@ class MinutesAdapter:
         try:
             output_dir = Config.DATA_DIR / "minutes" / minute_token
             output_dir.mkdir(parents=True, exist_ok=True)
+            cli_output_dir = Path("data") / "minutes" / minute_token
             cmd = [
-                "lark-cli", "minutes", "+detail",
+                Config.get_lark_cli_command(), "minutes", "+detail",
                 "--minute-tokens", minute_token,
                 "--summary", "--todo", "--chapter", "--transcript",
-                "--overwrite", "--output-dir", str(output_dir),
+                "--overwrite", "--output-dir", str(cli_output_dir),
                 "--as", "user",
             ]
 
@@ -344,7 +345,8 @@ class MinutesAdapter:
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
-                timeout=120
+                timeout=120,
+                cwd=str(Config.PROJECT_ROOT),
             )
 
             if result.returncode != 0:

@@ -213,7 +213,7 @@ class DocsAdapter:
 
         # CLI 无 docx 域；文档域为 docs，Markdown 正文需声明 --doc-format markdown
         cmd = [
-            "lark-cli", "docs", "+create",
+            Config.get_lark_cli_command(), "docs", "+create",
             "--title", title,
             "--content", content,
             "--doc-format", "markdown",
@@ -252,7 +252,7 @@ class DocsAdapter:
     def _real_get_doc(self, doc_token: str) -> Optional[dict]:
         """真实获取文档内容（lark-cli docs +fetch）"""
         cmd = [
-            "lark-cli", "docs", "+fetch",
+            Config.get_lark_cli_command(), "docs", "+fetch",
             "--doc", doc_token,
             "--doc-format", "markdown",
             "--as", "bot",
@@ -279,7 +279,7 @@ class DocsAdapter:
         因此以文档标题中的类型标记作为检索关键词。
         """
         cmd = [
-            "lark-cli", "docs", "+search",
+            Config.get_lark_cli_command(), "docs", "+search",
             "--query", doc_type or "LabMemory",
             "--as", "user",
         ]

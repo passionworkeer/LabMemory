@@ -2,6 +2,7 @@
 配置加载模块
 """
 import os
+import shutil
 import sys
 from dotenv import load_dotenv
 from pathlib import Path
@@ -27,6 +28,16 @@ class Config:
 
     # 飞书应用（仅作标识；飞书调用的凭据由 lark-cli 自身管理，见 DEPLOYMENT.md）
     FEISHU_APP_ID = os.getenv("FEISHU_APP_ID", "")
+    LARK_CLI_COMMAND = os.getenv("LARK_CLI_COMMAND", "")
+
+    @classmethod
+    def get_lark_cli_command(cls) -> str:
+        """返回可供 Python subprocess 直接执行的 lark-cli 命令。"""
+        if cls.LARK_CLI_COMMAND:
+            return cls.LARK_CLI_COMMAND
+        if os.name == "nt":
+            return shutil.which("lark-cli.cmd") or "lark-cli.cmd"
+        return shutil.which("lark-cli") or "lark-cli"
     FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET", "")
 
 
@@ -61,8 +72,9 @@ class Config:
     MAX_RETRIES = int(os.getenv("MAX_RETRIES", "5"))
     RETRY_BASE_DELAY = int(os.getenv("RETRY_BASE_DELAY", "1"))
 
-    # 数据目录
-    DATA_DIR = Path(__file__).parent.parent / "data"
+    # 项目与数据目录
+    PROJECT_ROOT = Path(__file__).parent.parent
+    DATA_DIR = PROJECT_ROOT / "data"
     LOG_DIR = Path(__file__).parent.parent / "logs"
 
     @classmethod

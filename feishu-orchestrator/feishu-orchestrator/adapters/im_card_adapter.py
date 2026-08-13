@@ -453,7 +453,7 @@ class IMCardAdapter:
         """
         try:
             cmd = [
-                "lark-cli", "im", "+messages-send",
+                Config.get_lark_cli_command(), "im", "+messages-send",
                 *self._receiver_flag(receive_id),
                 "--msg-type", "interactive",
                 "--content", json.dumps(card, ensure_ascii=False),
@@ -500,7 +500,7 @@ class IMCardAdapter:
         """
         try:
             cmd = [
-                "lark-cli", "api", "PATCH", f"/open-apis/im/v1/messages/{message_id}",
+                Config.get_lark_cli_command(), "api", "PATCH", f"/open-apis/im/v1/messages/{message_id}",
                 "--data", json.dumps(
                     {"content": json.dumps(card, ensure_ascii=False)},
                     ensure_ascii=False,

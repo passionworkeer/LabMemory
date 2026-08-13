@@ -518,6 +518,27 @@ class TestWebhookSignature(unittest.TestCase):
 class TestProductionReliability(unittest.TestCase):
     """真实模式可靠性边界测试"""
 
+    def test_lark_cli_command_uses_platform_default(self):
+        original_override = Config.LARK_CLI_COMMAND
+        try:
+            Config.LARK_CLI_COMMAND = ""
+            command = Config.get_lark_cli_command()
+            if os.name == "nt":
+                self.assertTrue(command.endswith("lark-cli.cmd"))
+            else:
+                self.assertEqual(command, "lark-cli")
+        finally:
+            Config.LARK_CLI_COMMAND = original_override
+
+
+    def test_lark_cli_command_explicit_override(self):
+        original_override = Config.LARK_CLI_COMMAND
+        try:
+            Config.LARK_CLI_COMMAND = "C:/tools/lark-cli-custom.cmd"
+            self.assertEqual(Config.get_lark_cli_command(), "C:/tools/lark-cli-custom.cmd")
+        finally:
+            Config.LARK_CLI_COMMAND = original_override
+
     def test_retry_engine_retries_explicit_timeout(self):
         attempts = []
         engine = RetryEngine(max_retries=1, base_delay=0, jitter=False)
@@ -588,7 +609,8 @@ class TestProductionReliability(unittest.TestCase):
         module.subprocess.run = original_run
         self.assertIn("--output-dir", captured[0])
         output_dir = Path(captured[0][captured[0].index("--output-dir") + 1])
-        self.assertEqual(output_dir.name, "minute_test")
+        self.assertEqual(output_dir.as_posix(), "data/minutes/minute_test")
+        self.assertEqual(captured[0][captured[0].index("--as") + 1], "user")
 
     def test_docs_publish_requires_document_id(self):
         original_run = __import__("adapters.docs_adapter", fromlist=["subprocess"]).subprocess.run
@@ -612,7 +634,7 @@ class TestProductionReliability(unittest.TestCase):
                 calls.append(candidate["candidate_id"])
                 return "rec_existing"
             base_adapter.add_record = fake_add
-            candidate = {"candidate_id": "cand_recovery", "title": "测试"}
+            candidate = {"candidate_id": "cand_recovery_cross_platform", "title": "测试"}
             first = base_adapter.batch_add_records([candidate])
             second = base_adapter.batch_add_records([candidate])
         finally:
@@ -620,7 +642,7 @@ class TestProductionReliability(unittest.TestCase):
             base_adapter.mock_mode = original_mock
         self.assertEqual(first, ["rec_existing"])
         self.assertEqual(second, ["rec_existing"])
-        self.assertEqual(calls, ["cand_recovery"])
+        self.assertEqual(calls, ["cand_recovery_cross_platform"])
 
     def test_approved_card_cli_failure_is_explicit(self):
         module = __import__("adapters.im_card_adapter", fromlist=["subprocess"])

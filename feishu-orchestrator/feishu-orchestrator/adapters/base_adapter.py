@@ -267,7 +267,7 @@ class BaseAdapter:
 
         # lark-cli base +record-batch-create：字段通过 --json 的 create_records 传入
         cmd = [
-            "lark-cli", "base", "+record-batch-create",
+            Config.get_lark_cli_command(), "base", "+record-batch-create",
             "--base-token", self.app_token,
             "--table-id", self.table_id,
             "--json", json.dumps({"create_records": [fields]}, ensure_ascii=False),
@@ -295,7 +295,7 @@ class BaseAdapter:
     def _real_update_record(self, record_id: str, fields: dict) -> bool:
         """真实更新记录（lark-cli base +record-batch-update）"""
         cmd = [
-            "lark-cli", "base", "+record-batch-update",
+            Config.get_lark_cli_command(), "base", "+record-batch-update",
             "--base-token", self.app_token,
             "--table-id", self.table_id,
             "--json", json.dumps({"update_records": {record_id: fields}}, ensure_ascii=False),
@@ -317,7 +317,7 @@ class BaseAdapter:
     def _real_get_record(self, record_id: str) -> Optional[dict]:
         """真实获取记录（lark-cli base +record-get）"""
         cmd = [
-            "lark-cli", "base", "+record-get",
+            Config.get_lark_cli_command(), "base", "+record-get",
             "--base-token", self.app_token,
             "--table-id", self.table_id,
             "--record-id", record_id,
@@ -342,7 +342,7 @@ class BaseAdapter:
     def _real_list_records(self, status: Optional[str] = None, limit: int = 100) -> List[dict]:
         """真实查询记录列表（lark-cli base +record-list）"""
         cmd = [
-            "lark-cli", "base", "+record-list",
+            Config.get_lark_cli_command(), "base", "+record-list",
             "--base-token", self.app_token,
             "--table-id", self.table_id,
             "--limit", str(limit),

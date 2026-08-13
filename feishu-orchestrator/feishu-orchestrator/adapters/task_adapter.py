@@ -151,7 +151,7 @@ class TaskAdapter:
         """真实创建飞书任务（lark-cli task +create）"""
         try:
             cmd = [
-                "lark-cli", "task", "+create",
+                Config.get_lark_cli_command(), "task", "+create",
                 "--summary", summary,
                 "--description", description,
                 "--as", "bot",
@@ -206,7 +206,7 @@ class TaskAdapter:
         """
         try:
             cmd = [
-                "lark-cli", "api", "GET", f"/open-apis/task/v2/tasks/{task_guid}",
+                Config.get_lark_cli_command(), "api", "GET", f"/open-apis/task/v2/tasks/{task_guid}",
                 "--as", "bot",
             ]
 
@@ -243,7 +243,7 @@ class TaskAdapter:
 
         try:
             cmd = [
-                "lark-cli", "task", shortcut,
+                Config.get_lark_cli_command(), "task", shortcut,
                 "--task-id", task_guid,
                 "--as", "bot",
             ]

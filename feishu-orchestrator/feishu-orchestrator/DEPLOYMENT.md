@@ -517,6 +517,11 @@ lark-cli task +create --summary "LabMemory 上线验收任务" --description "�
 
 确认失败原因后，修正配置并重试同一业务键；不要删除集成日志和幂等记录来“恢复”真实链路。
 
+Windows 通过 npm 全局安装 lark-cli 时，项目 Python 进程会自动使用 `lark-cli.cmd`；若服务由 IDE、计划任务或 systemd-like wrapper 启动，请确保 `%APPDATA%\\npm` 在服务进程 PATH 中，或在 `config/.env` 显式设置 `LARK_CLI_COMMAND`。
+
+Base 写入需要开放平台 scope `base:record:create`；任务读写需要 `task:task:read` 和 `task:task:write`。收到 `app_scope_not_applied` 时，使用错误响应中的 `scope-apply` 链接申请权限并重新授权。
+
+
 ### Q11: Real 模式报「lark-cli 未安装，请先安装飞书 CLI」？
 
 **原因**：妙记、任务、卡片、多维表格、云文档均通过 `subprocess` 调用 `lark-cli`，它是 Real 模式的硬依赖。
