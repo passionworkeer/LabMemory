@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Loading, ErrorState } from "../components/State";
 import { useParams } from "react-router-dom";
-import { apiPublishResult, apiStartTask, apiSubmitResult } from "../api";
+import { apiListMeetings, apiPublishResult, apiStartTask, apiSubmitResult } from "../api";
 import { dialog } from "../dialog";
 import ParameterEditor, { type ParamRow } from "../components/ParameterEditor";
 import type { MeetingDetailOut, ResultOut } from "../types";
@@ -42,29 +42,34 @@ export default function ResultBackflow() {
   const canPublish = user?.global_role === "pi" || user?.global_role === "lead" || user?.global_role === "admin";
   const [publishingResultId, setPublishingResultId] = useState<string | null>(null);
 
-  const load = () => {
+  const load = async () => {
     if (!taskId) return;
-    fetch("/api/meetings", { headers: { Authorization: `Bearer ${localStorage.getItem("labmemory_token")}` } })
-      .then((r) => r.json())
-      .then((ms: MeetingDetailOut[]) => {
-        const m = ms.find((x) => x.task?.task_id === taskId);
-        if (m) {
-          setMeeting(m);
-          const pp = m.task?.planned_params as { parameters?: { name: string; value: string; unit?: string }[] } | null;
-          if (pp?.parameters) {
-            setActualParamRows(
-              pp.parameters.map((p) => ({
-                name: p.name,
-                value: String(p.value ?? ""),
-                unit: p.unit ?? "",
-              }))
-            );
-          }
-        }
-      })
-      .catch((e) => setErr(e.message));
+    try {
+      const ms = await apiListMeetings();
+      const m = ms.find((x) => x.task?.task_id === taskId);
+      if (!m) {
+        // 任务无关联会议（或已不在列表）→ 显式报错，避免一直卡在 Loading
+        setErr("未找到该任务关联的会议记录，请从「结果列表」入口进入。");
+        return;
+      }
+      setMeeting(m);
+      const pp = m.task?.planned_params as { parameters?: { name: string; value: string; unit?: string }[] } | null;
+      if (pp?.parameters) {
+        setActualParamRows(
+          pp.parameters.map((p) => ({
+            name: p.name,
+            value: String(p.value ?? ""),
+            unit: p.unit ?? "",
+          }))
+        );
+      }
+    } catch (e) {
+      setErr((e as Error).message);
+    }
   };
-  useEffect(load, [taskId]);
+  useEffect(() => {
+    load();
+  }, [taskId]);
 
   const submitResult = async () => {
     setBusy(true);
@@ -232,7 +237,7 @@ export default function ResultBackflow() {
             <span className="section-meta">PI / Lead / Executor 均可提交 · 每个任务仅可提交一次</span>
           </div>
           <p className="text-xs muted -mt-2 mb-3">
-            提交后任务将自动标记为已完成；实际参数与计划参数 key 不一致会触发 frozen。
+            提交后任务将自动标记为已完成；未覆盖全部计划参数名（或留空）会触发 frozen。
           </p>
           <div className="grid grid-cols-2 gap-4 max-md:grid-cols-1">
             <div className="field">

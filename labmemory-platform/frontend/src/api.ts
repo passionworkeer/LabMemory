@@ -58,6 +58,14 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
   const res = await fetch(path, { ...opts, headers });
+  // 401（非 auth 接口）：token 失效/被吊销，清登录态并回登录页，避免后续请求连环 401
+  if (res.status === 401 && !path.startsWith("/api/auth/")) {
+    clearToken();
+    if (window.location.pathname !== "/login") {
+      window.location.href = "/login";
+    }
+    throw new ApiError("unauthorized", "登录已失效，请重新登录", 401);
+  }
   if (!res.ok) {
     let msg = res.statusText;
     let code = "http_error";

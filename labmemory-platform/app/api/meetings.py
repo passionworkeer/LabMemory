@@ -212,35 +212,39 @@ def confirm_review(
     gate = run_six_gates(chosen, payload.modifications, exp, user)
     new_params = (payload.modifications or {}).get("parameters") or (chosen or {}).get("parameters") or []
     new_scope = (payload.modifications or {}).get("scope") or (chosen or {}).get("scope")
-    conflicts = detect_conflicts(db, exp.id, new_params, new_scope, user)
-    blocked_by_conflict = any(c.get("severity") == "high" for c in conflicts)
-    publish_status = "pending_supplement" if blocked_by_conflict else gate["publish_status"]
+    # 并发串行化：supersede 临界区（读旧 current → 置 superseded → 写新 current → commit）按实验加锁，
+    # 防止并发 confirm 各自基于陈旧读取创建多条 current（trust-rules「并发发布串行化」）
+    from app.db.locking import lock_experiment_for_write
+    with lock_experiment_for_write(db, exp.id):
+        conflicts = detect_conflicts(db, exp.id, new_params, new_scope, user)
+        blocked_by_conflict = any(c.get("severity") == "high" for c in conflicts)
+        publish_status = "pending_supplement" if blocked_by_conflict else gate["publish_status"]
 
-    claim = _build_claim(db, m, exp, cand, payload.modifications, publish_status=publish_status)
-    db.add(claim)
-    db.flush()
-
-    task = None
-    if publish_status == "current":
-        task = Task(
-            task_id=new_id("T"),
-            meeting_id=m.id,
-            experiment_id=exp.id,
-            claim_id=claim.id,
-            status="draft",
-            planned_params=claim.parameter_version,
-        )
-        db.add(task)
+        claim = _build_claim(db, m, exp, cand, payload.modifications, publish_status=publish_status)
+        db.add(claim)
         db.flush()
 
-    db.add(AuditEvent(
-        actor_id=user.id, action="review.confirmed",
-        target_type="meeting", target_id=m.meeting_id,
-        after={"claim_id": claim.claim_id, "task_id": task.task_id if task else None,
-               "publish_status": publish_status, "gate_failed": gate["report"], "conflicts": conflicts},
-        reason=(payload.reason or payload.notes or ""),
-    ))
-    db.commit()
+        task = None
+        if publish_status == "current":
+            task = Task(
+                task_id=new_id("T"),
+                meeting_id=m.id,
+                experiment_id=exp.id,
+                claim_id=claim.id,
+                status="draft",
+                planned_params=claim.parameter_version,
+            )
+            db.add(task)
+            db.flush()
+
+        db.add(AuditEvent(
+            actor_id=user.id, action="review.confirmed",
+            target_type="meeting", target_id=m.meeting_id,
+            after={"claim_id": claim.claim_id, "task_id": task.task_id if task else None,
+                   "publish_status": publish_status, "gate_failed": gate["report"], "conflicts": conflicts},
+            reason=(payload.reason or payload.notes or ""),
+        ))
+        db.commit()
 
     # 索引新生成的 Claim 与会议证据片段，供可信问答检索
     try:

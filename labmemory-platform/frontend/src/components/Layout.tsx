@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../store";
 import AnimatedBackground from "./AnimatedBackground";
+import { Loading } from "./State";
 
 const ROLE_LABEL: Record<string, string> = {
   pi: "项目负责人",
@@ -125,7 +126,7 @@ export default function Layout() {
   const firstSegment = location.pathname.split("/").filter(Boolean)[0] || "tower";
   const [roleMenuOpen, setRoleMenuOpen] = useState(false);
 
-  if (!user) return null;
+  if (!user) return <Loading />;
 
   const isPI = user.global_role === "pi" || user.global_role === "admin";
 

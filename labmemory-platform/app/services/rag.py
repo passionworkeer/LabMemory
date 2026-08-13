@@ -14,6 +14,7 @@ from app.db.models import (
     EmbeddingChunk,
     Experiment,
     ExperimentMember,
+    Meeting,
     Result,
     Task,
     User,
@@ -101,14 +102,16 @@ def _relation_expand(db: Session, hit_chunks: list[EmbeddingChunk], all_chunks_b
                     bid = f"boundary:{r.result_id}"
                     if bid in all_chunks_by_id:
                         extra_ids.append(bid)
-        # 关联证据：通过 claim.meeting_id -> Meeting.transcript 切片
-        meeting = db.query(EmbeddingChunk).filter(
-            EmbeddingChunk.chunk_type == "evidence",
-            EmbeddingChunk.ref_id.like(f"{claim.meeting_id}#%"),
-        ).first()
-        # 仅取第一条证据作为代表
-        if meeting:
-            extra_ids.append(meeting.chunk_id)
+        # 关联证据：claim.meeting_id 是整数 FK，evidence.ref_id 用字符串 meeting_id（"{meeting_id}#seg{idx}"）
+        meeting_row = db.get(Meeting, claim.meeting_id) if claim.meeting_id else None
+        if meeting_row:
+            evidence_chunk = db.query(EmbeddingChunk).filter(
+                EmbeddingChunk.chunk_type == "evidence",
+                EmbeddingChunk.ref_id.like(f"{meeting_row.meeting_id}#%"),
+            ).first()
+            # 仅取第一条证据作为代表
+            if evidence_chunk:
+                extra_ids.append(evidence_chunk.chunk_id)
     return extra_ids
 
 
@@ -251,6 +254,8 @@ def ask(db: Session, user: User, question: str) -> dict:
             },
         )
     chunks_by_id = {c.chunk_id: c for c in candidate_chunks}
+
+    vec_avail = vec.vec_available(db)
 
     # 步骤 3：BM25 召回
     bm25_hits: list[tuple[str, float]] = []
@@ -396,6 +401,7 @@ def ask(db: Session, user: User, question: str) -> dict:
             "status_filtered_chunks": len(candidate_ids),
             "bm25_hits": len(bm25_hits),
             "vector_hits": len(vec_hits),
+            "vector_available": vec_avail,
             "after_relation_expansion": len(all_candidate_ids),
             "after_rerank": len(ranked),
             "top_score": round(top_score, 4),

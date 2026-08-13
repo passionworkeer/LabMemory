@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_pi
-from app.core.errors import ConflictError, NotFoundError
+from app.core.errors import ConflictError, NotFoundError, PermissionDeniedError
 from app.db.models import Experiment, ExperimentMember, Project, User
 from app.schemas import (
     ExperimentIn,
@@ -50,6 +50,9 @@ def create_experiment(payload: ExperimentIn, db: Session = Depends(get_db), user
     proj = db.query(Project).filter(Project.project_id == payload.project_id).first()
     if proj is None:
         raise NotFoundError(f"项目不存在：{payload.project_id}")
+    # 仅项目所有者 PI（或 admin）可在该项目下创建实验（IDOR 收口）
+    if user.global_role != "admin" and proj.pi_user_id != user.id:
+        raise PermissionDeniedError("仅项目所有者（PI）可在该项目下创建实验")
     if db.query(Experiment).filter(Experiment.experiment_id == payload.experiment_id).first():
         raise ConflictError(f"实验已存在：{payload.experiment_id}")
     owner = db.query(User).filter(User.username == payload.owner_username).first()
@@ -82,18 +85,20 @@ def list_experiments(db: Session = Depends(get_db), user: User = Depends(require
 
 
 @router.get("/experiments/{experiment_id}", response_model=ExperimentOut)
-def get_experiment(experiment_id: str, db: Session = Depends(get_db)) -> ExperimentOut:
+def get_experiment(experiment_id: str, db: Session = Depends(get_db), user: User = Depends(require_pi)) -> ExperimentOut:
     exp = db.query(Experiment).filter(Experiment.experiment_id == experiment_id).first()
     if exp is None:
         raise NotFoundError(f"实验不存在：{experiment_id}")
+    _ensure_project_owner(db, exp, user)
     return _experiment_out(db, exp)
 
 
 @router.post("/experiments/{experiment_id}/members", response_model=ExperimentOut)
-def add_member(experiment_id: str, payload: ExperimentMemberIn, db: Session = Depends(get_db)) -> ExperimentOut:
+def add_member(experiment_id: str, payload: ExperimentMemberIn, db: Session = Depends(get_db), user: User = Depends(require_pi)) -> ExperimentOut:
     exp = db.query(Experiment).filter(Experiment.experiment_id == experiment_id).first()
     if exp is None:
         raise NotFoundError(f"实验不存在：{experiment_id}")
+    _ensure_project_owner(db, exp, user)
     u = db.query(User).filter(User.username == payload.username).first()
     if u is None:
         raise NotFoundError(f"用户不存在：{payload.username}")
@@ -108,6 +113,15 @@ def add_member(experiment_id: str, payload: ExperimentMemberIn, db: Session = De
     db.commit()
     db.refresh(exp)
     return _experiment_out(db, exp)
+
+
+def _ensure_project_owner(db: Session, exp: Experiment, user: User) -> None:
+    """实验所属项目必须由当前 PI 所有（或 admin），否则 403（IDOR 收口）。"""
+    if user.global_role == "admin":
+        return
+    proj = db.get(Project, exp.project_id)
+    if proj is None or proj.pi_user_id != user.id:
+        raise PermissionDeniedError("仅项目所有者（PI）可操作该项目下的实验")
 
 
 def _experiment_out(db: Session, exp: Experiment) -> ExperimentOut:

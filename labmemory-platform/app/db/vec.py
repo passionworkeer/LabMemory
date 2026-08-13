@@ -33,17 +33,27 @@ def _raw_conn(db_session: Session):
 
 
 def ensure_vec_tables(db_session: Session, dim: int) -> bool:
-    """创建 vec_chunks 虚拟表与 chunks_fts 倒排表。返回是否成功加载 sqlite-vec。"""
+    """创建 vec_chunks 虚拟表与 chunks_fts 倒排表。返回 vec_chunks 是否建表成功。
+
+    FTS5（chunks_fts）是 SQLite 内置，恒可建；vec0（vec_chunks）依赖 sqlite-vec 扩展，
+    可能加载失败。两者独立处理：vec 不可用时 FTS 仍可用，QA 可降级为 BM25（decision-qa）。
+    """
+    conn = _raw_conn(db_session)
+    cur = conn.cursor()
+    # FTS5 内置：先确保倒排表，BM25 召回依赖它
     try:
-        conn = _raw_conn(db_session)
-        cur = conn.cursor()
-        cur.execute(
-            f"CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(embedding float[{dim}], chunk_id text)"
-        )
         cur.execute(
             "CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5("
             "chunk_id UNINDEXED, content_text, tokenize='unicode61'"
             ")"
+        )
+        conn.commit()
+    except Exception:
+        pass
+    # vec0 依赖 sqlite-vec 扩展：单独 try，失败不影响 FTS
+    try:
+        cur.execute(
+            f"CREATE VIRTUAL TABLE IF NOT EXISTS vec_chunks USING vec0(embedding float[{dim}], chunk_id text)"
         )
         conn.commit()
         return True

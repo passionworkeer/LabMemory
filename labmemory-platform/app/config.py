@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     # 默认本地开发白名单；禁 `*`+credentials 共存（main.py 兜底降级）
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:8081"
 
+    # 部署环境：production 下默认密钥将硬失败（防弱密钥上生产）；默认 development 保 dev/test 可运行
+    APP_ENV: str = "development"
+
     # SQLite 默认；可在 .env 切换为 postgresql://...
     DATABASE_URL: str = "sqlite:///./data/labmemory.db"
 
@@ -76,14 +79,20 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
 
     @model_validator(mode="after")
-    def _warn_default_secrets(self) -> "Settings":
-        """默认密钥启动告警（不 crash，保 dev/test；生产必须覆盖）。"""
-        for key, default in _DEFAULT_SECRETS.items():
-            val = getattr(self, key)
-            if val == default:
-                logging.warning(
-                    "⚠️ %s 为代码默认值——生产部署 MUST 覆盖为强随机值，否则存在伪造/越权风险。", key,
-                )
+    def _check_secrets(self) -> "Settings":
+        """默认密钥：APP_ENV=production 下硬失败；其余环境告警（保 dev/test 可运行性）。"""
+        offenders = [k for k, d in _DEFAULT_SECRETS.items() if getattr(self, k) == d]
+        if not offenders:
+            return self
+        if self.APP_ENV == "production":
+            raise ValueError(
+                "APP_ENV=production 下禁止使用代码默认密钥（存在伪造/越权风险），"
+                f"请覆盖：{', '.join(offenders)}"
+            )
+        for key in offenders:
+            logging.warning(
+                "⚠️ %s 为代码默认值——生产部署 MUST 覆盖为强随机值，否则存在伪造/越权风险。", key,
+            )
         return self
 
 

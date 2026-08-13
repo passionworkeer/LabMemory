@@ -177,112 +177,116 @@ def card_callback(payload: CardCallbackIn, db: Session = Depends(get_db)):
         db.commit()
         return resp
 
-    task = None
-    if review and review.status == "pending":
-        review.status = "processed"
-        review.decision = "confirmed"
-        review.reviewer_id = actor_id
-        review.reviewed_at = datetime.utcnow()
-        # 六道闸门 + 冲突检测（PRD §10.1/10.5）决定发布状态
-        from app.services.trust_rules import run_six_gates, detect_conflicts, pick_candidate
-        chosen = pick_candidate(cand_row)
-        gate = run_six_gates(chosen, None, exp, actor)
-        new_params = (chosen or {}).get("parameters") or []
-        new_scope = (chosen or {}).get("scope")
-        conflicts = detect_conflicts(db, exp.id, new_params, new_scope, actor)
-        blocked_by_conflict = any(c.get("severity") == "high" for c in conflicts)
-        publish_status = "pending_supplement" if blocked_by_conflict else gate["publish_status"]
-        claim = _build_claim(db, meeting, exp, cand_row, None, publish_status=publish_status)
-        db.add(claim)
-        db.flush()
-        if publish_status == "current":
-            task = Task(
-                task_id=new_id("T"),
-                meeting_id=meeting.id,
-                experiment_id=exp.id,
-                claim_id=claim.id,
-                status="draft",
-                planned_params=claim.parameter_version,
-            )
-            db.add(task)
+    # 并发串行化：approve 的 supersede 临界区按实验加锁（与 confirm_review 一致，
+    # trust-rules「并发发布串行化」），覆盖 _build_claim 至最终 commit。
+    from app.db.locking import lock_experiment_for_write
+    with lock_experiment_for_write(db, exp.id):
+        task = None
+        if review and review.status == "pending":
+            review.status = "processed"
+            review.decision = "confirmed"
+            review.reviewer_id = actor_id
+            review.reviewed_at = datetime.utcnow()
+            # 六道闸门 + 冲突检测（PRD §10.1/10.5）决定发布状态
+            from app.services.trust_rules import run_six_gates, detect_conflicts, pick_candidate
+            chosen = pick_candidate(cand_row)
+            gate = run_six_gates(chosen, None, exp, actor)
+            new_params = (chosen or {}).get("parameters") or []
+            new_scope = (chosen or {}).get("scope")
+            conflicts = detect_conflicts(db, exp.id, new_params, new_scope, actor)
+            blocked_by_conflict = any(c.get("severity") == "high" for c in conflicts)
+            publish_status = "pending_supplement" if blocked_by_conflict else gate["publish_status"]
+            claim = _build_claim(db, meeting, exp, cand_row, None, publish_status=publish_status)
+            db.add(claim)
             db.flush()
+            if publish_status == "current":
+                task = Task(
+                    task_id=new_id("T"),
+                    meeting_id=meeting.id,
+                    experiment_id=exp.id,
+                    claim_id=claim.id,
+                    status="draft",
+                    planned_params=claim.parameter_version,
+                )
+                db.add(task)
+                db.flush()
+            else:
+                # 闸门/冲突未过：不建任务，返回 blocked 携带闸门报告（编排器 card_handler 走 blocked 分支）
+                gate_report = gate["report"] + [c["message"] for c in conflicts]
+                db.add(AuditEvent(
+                    actor_id=actor_id, action="review.gate_blocked",
+                    target_type="meeting", target_id=meeting.meeting_id,
+                    after={"claim_id": claim.claim_id, "publish_status": publish_status,
+                           "gate_failed": gate["report"], "conflicts": conflicts},
+                ))
+                resp = {"status": "blocked", "action_audit": "gate_failed", "candidate_id": candidate_id,
+                        "message": "候选发布闸门未过：" + "; ".join(gate_report)}
+                _log_callback(db, token, action_type, candidate_id, resp, actor_id)
+                db.commit()
+                return resp
         else:
-            # 闸门/冲突未过：不建任务，返回 blocked 携带闸门报告（编排器 card_handler 走 blocked 分支）
-            gate_report = gate["report"] + [c["message"] for c in conflicts]
-            db.add(AuditEvent(
-                actor_id=actor_id, action="review.gate_blocked",
-                target_type="meeting", target_id=meeting.meeting_id,
-                after={"claim_id": claim.claim_id, "publish_status": publish_status,
-                       "gate_failed": gate["report"], "conflicts": conflicts},
-            ))
-            resp = {"status": "blocked", "action_audit": "gate_failed", "candidate_id": candidate_id,
-                    "message": "候选发布闸门未过：" + "; ".join(gate_report)}
+            task = (
+                db.query(Task)
+                .filter(Task.meeting_id == meeting.id)
+                .order_by(Task.id.desc())
+                .first()
+            )
+            # 复核已 processed：仅 draft/needs_confirmation/blocked 可重审；running/completed 不回退状态
+            if task is not None and task.status not in ("draft", "needs_confirmation", "blocked"):
+                existing_audit = db.query(ActionAudit).filter(ActionAudit.task_id == task.id).first()
+                aa = existing_audit.status if existing_audit else "needs_confirmation"
+                resp = {
+                    "status": "approved" if aa == "passed" else "blocked",
+                    "action_audit": aa,
+                    "candidate_id": candidate_id,
+                    "message": f"任务已 {task.status}，不重新审计（避免状态回退）",
+                }
+                _log_callback(db, token, action_type, candidate_id, resp, actor_id, task_id=task.task_id)
+                db.commit()
+                return resp
+
+        if task is None:
+            resp = {"status": "blocked", "action_audit": "no_task", "candidate_id": candidate_id,
+                    "message": "会议尚未生成任务"}
             _log_callback(db, token, action_type, candidate_id, resp, actor_id)
             db.commit()
             return resp
-    else:
-        task = (
-            db.query(Task)
-            .filter(Task.meeting_id == meeting.id)
-            .order_by(Task.id.desc())
-            .first()
-        )
-        # 复核已 processed：仅 draft/needs_confirmation/blocked 可重审；running/completed 不回退状态
-        if task is not None and task.status not in ("draft", "needs_confirmation", "blocked"):
-            existing_audit = db.query(ActionAudit).filter(ActionAudit.task_id == task.id).first()
-            aa = existing_audit.status if existing_audit else "needs_confirmation"
-            resp = {
-                "status": "approved" if aa == "passed" else "blocked",
-                "action_audit": aa,
-                "candidate_id": candidate_id,
-                "message": f"任务已 {task.status}，不重新审计（避免状态回退）",
-            }
-            _log_callback(db, token, action_type, candidate_id, resp, actor_id, task_id=task.task_id)
-            db.commit()
-            return resp
 
-    if task is None:
-        resp = {"status": "blocked", "action_audit": "no_task", "candidate_id": candidate_id,
-                "message": "会议尚未生成任务"}
-        _log_callback(db, token, action_type, candidate_id, resp, actor_id)
+        # 六道闸门审计
+        audit = db.query(ActionAudit).filter(ActionAudit.task_id == task.id).first()
+        if audit is None:
+            audit = ActionAudit(task_id=task.id, status="pending")
+            db.add(audit)
+            db.flush()
+        checks = _run_checks(task, exp, db)
+        audit.status = checks["overall"]
+        audit.auditor_id = actor_id
+        audit.audited_at = datetime.utcnow()
+        audit.checks = checks["items"]
+        audit.result = {
+            "overall": checks["overall"],
+            "reasons": checks["reasons"],
+            "confirmations": checks["confirmations"],
+        }
+        if audit.status == "passed":
+            task.status = "audited"
+        elif audit.status == "blocked":
+            task.status = "blocked"
+        else:
+            task.status = "needs_confirmation"
+
+        # 映射到编排器词汇：passed → action_audit="pass"（card_handler.py:57 的硬门控）
+        if audit.status == "passed":
+            action_audit, status, message = "pass", "approved", "六道闸门审计通过，可创建飞书任务"
+        elif audit.status == "blocked":
+            action_audit, status, message = "block", "blocked", "行动前审计阻断：" + "; ".join(checks["reasons"])
+        else:
+            action_audit, status, message = "needs_confirmation", "blocked", "需确认：" + "; ".join(checks["confirmations"])
+
+        resp = {"status": status, "action_audit": action_audit, "candidate_id": candidate_id, "message": message}
+        _log_callback(db, token, action_type, candidate_id, resp, actor_id, task_id=task.task_id)
         db.commit()
         return resp
-
-    # 六道闸门审计
-    audit = db.query(ActionAudit).filter(ActionAudit.task_id == task.id).first()
-    if audit is None:
-        audit = ActionAudit(task_id=task.id, status="pending")
-        db.add(audit)
-        db.flush()
-    checks = _run_checks(task, exp, db)
-    audit.status = checks["overall"]
-    audit.auditor_id = actor_id
-    audit.audited_at = datetime.utcnow()
-    audit.checks = checks["items"]
-    audit.result = {
-        "overall": checks["overall"],
-        "reasons": checks["reasons"],
-        "confirmations": checks["confirmations"],
-    }
-    if audit.status == "passed":
-        task.status = "audited"
-    elif audit.status == "blocked":
-        task.status = "blocked"
-    else:
-        task.status = "needs_confirmation"
-
-    # 映射到编排器词汇：passed → action_audit="pass"（card_handler.py:57 的硬门控）
-    if audit.status == "passed":
-        action_audit, status, message = "pass", "approved", "六道闸门审计通过，可创建飞书任务"
-    elif audit.status == "blocked":
-        action_audit, status, message = "block", "blocked", "行动前审计阻断：" + "; ".join(checks["reasons"])
-    else:
-        action_audit, status, message = "needs_confirmation", "blocked", "需确认：" + "; ".join(checks["confirmations"])
-
-    resp = {"status": status, "action_audit": action_audit, "candidate_id": candidate_id, "message": message}
-    _log_callback(db, token, action_type, candidate_id, resp, actor_id, task_id=task.task_id)
-    db.commit()
-    return resp
 
 
 def _log_callback(
