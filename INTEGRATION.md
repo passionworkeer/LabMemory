@@ -262,9 +262,15 @@ python scripts/health_check.py     # → 11 通过 / 0 失败
 
 > card/callback 对 approve 诚实返回 `action_audit=needs_confirmation`（新建任务尚未审批/资源/失败边界就绪，六道闸门如实不放行）——这正是「行动前审计」产品价值，非乐观 pass。编排器侧 `card_handler` 仅在 `status=approved AND action_audit=pass` 后建飞书任务，平台如实返回确保不会越过审计建任务。
 
-### 6.4 反向联动（平台 → 编排器）现状与取舍
+### 6.4 反向联动（平台 → 编排器）——已实现（mock 级通路）
 
-契约 `FeishuActionRequest`（平台 → 编排器，`send_card` / `create_task` / `update_base` / `publish_doc` / `notify`）描述了平台主动请求飞书侧执行动作的方向。勘查结论：**此方向两侧均未实现，且当前并非系统运转所必需**，故作为后续工作保留。
+> **2026-08-13 更新**：反向通路已落地（OpenSpec change `add-platform-feishu-reverse-linkage`）。
+> - 编排器新增 `POST /webhook/platform`（`core/platform_action_handler.py` + `webhook_server.py`），按 `action_type` 分派到既有适配器，以 `idempotency_key` 幂等；mock 限 localhost、real 校验 `Authorization: Bearer {PLATFORM_API_KEY}`。
+> - 平台新增 `app/services/feishu_client.py`，四个触发点（复核待办→`send_card`、任务启动→`create_task`、知识发布→`publish_doc`、审计阻断→`notify`）均为非阻断 fire-and-forget；`FEISHU_ORCHESTRATOR_MODE=mock` 时不真调。
+> - 验证：`python -m scripts.reverse_linkage_check`（7/7，编排器 `RUN_MODE=mock` 即可，无需真飞书凭证）；平台 `pytest` 通过；编排器集成测试 37/38（剩余 1 个 `production-reliability-hardening` 既有未归档测试 `test_minutes_detail_uses_isolated_output_dir` 失败，与本 change 无关）。
+> - 真飞书落地仍需真 `FEISHU_APP_ID/SECRET` + `RUN_MODE=real`（上线前人工验收）。
+
+契约 `FeishuActionRequest`（平台 → 编排器，`send_card` / `create_task` / `update_base` / `publish_doc` / `notify`）描述了平台主动请求飞书侧执行动作的方向。**历史背景**（实现前勘查结论）：此方向曾两侧均未实现，且正向流程已覆盖建任务，故曾作为后续工作保留。
 
 **为何未实现且非阻塞**：
 - **建任务场景已被正向流程覆盖**：当前架构是「卡片 approve → 编排器 `card_handler._handle_approved` 自建飞书任务 → `POST /api/v1/task/status` 回写 guid」（见 §6.3）。任务创建由编排器在收到平台 `approved+pass` 后驱动，**不需要**平台再下发 `FeishuActionRequest(create_task)`。若再实现反向建任务，会与正向重复、形成并行路径。
@@ -278,7 +284,7 @@ python scripts/health_check.py     # → 11 通过 / 0 失败
 4. 走 OpenSpec change（新增端点 + 接口 = 系统行为变更）。
 5. 真飞书侧落地仍需真 `FEISHU_APP_ID/SECRET` + `AILY_API_KEY` + `RUN_MODE=real`（mock 级可先验证通路）。
 
-**建议**：除非产品确需「平台主动通知飞书」（如知识发布自动推送飞书文档），否则维持当前正向驱动架构；反向联动作为有明确需求时再启动的独立 change。
+**建议**：反向通路已按需求实现为并行路径（默认 mock 不真调）。注意 `send_card`/`create_task` 与正向流程存在并列重复，真实部署需二选一，避免重复发卡/建任务。
 
 ---
 
@@ -324,6 +330,6 @@ python scripts/health_check.py     # → 11 通过 / 0 失败
 
 **后续待办**
 - [x] **仓库运行时产物清理**：解除 6 个 `data/`/`logs` 文件的 git 跟踪（commit `1331e53`，`.gitignore` 已覆盖）
-- [-] **平台→编排器反向联动**：架构分析见 §6.4——两侧均未实现，正向流程已覆盖建任务，建议按需启动（非阻塞）
+- [x] **平台→编排器反向联动**：已实现（`/webhook/platform` + `feishu_client.py` + 四触发点 + `reverse_linkage_check` 7/7），详见 §6.4
 - [x] **前端 React UI 构建**：根因是提交的 `package-lock.json` 损坏（非宿主机 npm），已删 lockfile 重装再生 + `npm run build` 产出 dist；`GET /` 返回真实 React UI。再生 lockfile 已提交（产物 `frontend/dist/` 已 gitignore）
 - [ ] **`candidate_id` 索引列**：demo 规模 JSON 扫描够用，生产规模另起 change

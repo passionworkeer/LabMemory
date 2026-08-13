@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from core.config import Config
 from core.event_router import event_router
+from core.platform_action_handler import platform_action_handler
 from reliability.integration_log import integration_log
 
 
@@ -29,6 +30,8 @@ class WebhookHandler(BaseHTTPRequestHandler):
             self._handle_event()
         elif path == "/webhook/card":
             self._handle_card_callback()
+        elif path == "/webhook/platform":
+            self._handle_platform_action()
         else:
             self._send_json(404, {"error": "Not Found"})
 
@@ -149,6 +152,69 @@ class WebhookHandler(BaseHTTPRequestHandler):
             )
             self._send_json(500, {"error": str(e)})
 
+    def _handle_platform_action(self):
+        """处理平台下发的 FeishuActionRequest（反向联动）。"""
+        try:
+            content_length = int(self.headers.get("Content-Length", 0))
+            body = self.rfile.read(content_length)
+            data = json.loads(body)
+
+            # 鉴权：mock 模式限 localhost；real 模式校验 Bearer {PLATFORM_API_KEY}
+            if not self._verify_platform_key():
+                return
+
+            integration_log.log(
+                direction="inbound",
+                interface="webhook.platform_action",
+                input_data={"action_id": data.get("action_id"), "action_type": data.get("action_type")},
+                status="start"
+            )
+
+            result = platform_action_handler.handle_action(data)
+
+            integration_log.log(
+                direction="inbound",
+                interface="webhook.platform_action",
+                input_data={"action_id": data.get("action_id")},
+                output_data=result,
+                status="success"
+            )
+
+            self._send_json(200, result)
+
+        except Exception as e:
+            integration_log.log(
+                direction="inbound",
+                interface="webhook.platform_action",
+                input_data={},
+                error=str(e),
+                status="failed"
+            )
+            self._send_json(500, {"ok": False, "error": str(e)})
+
+    def _verify_platform_key(self) -> bool:
+        """平台动作请求鉴权：mock 仅 localhost；real 校验 Authorization: Bearer {PLATFORM_API_KEY}。"""
+        if Config.is_mock_mode():
+            client_ip = (getattr(self, "client_address", None) or ("",))[0]
+            if client_ip not in ("127.0.0.1", "::1", "localhost"):
+                self._send_json(403, {"ok": False, "error": "RUN_MODE=mock 仅允许本地访问；生产请设 RUN_MODE=real"})
+                return False
+            return True
+
+        expected = Config.PLATFORM_API_KEY
+        if not expected:
+            self._send_json(500, {"ok": False, "error": "未配置 PLATFORM_API_KEY"})
+            return False
+
+        auth = self.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            token = auth[7:].strip()
+            if hmac.compare_digest(token, expected):
+                return True
+
+        self._send_json(401, {"ok": False, "error": "invalid platform api key"})
+        return False
+
     def _verify_request(self, body: bytes, interface: str) -> bool:
         """
         校验请求签名。
@@ -241,6 +307,7 @@ def start_server(host: str = None, port: int = None):
     print(f"🚀 Webhook 服务启动: http://{host}:{port}")
     print(f"   - 事件订阅: POST /webhook/event")
     print(f"   - 卡片回调: POST /webhook/card")
+    print(f"   - 平台动作: POST /webhook/platform")
     print(f"   - 健康检查: GET  /health")
     if Config.is_mock_mode():
         print(f"   ⚠️  验签已跳过（RUN_MODE=mock，仅供本地演示）")

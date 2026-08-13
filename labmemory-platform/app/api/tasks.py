@@ -73,6 +73,8 @@ def run_audit(task_id: str, db: Session = Depends(get_db), user: User = Depends(
     ))
     db.commit()
     db.refresh(audit)
+    if audit.status == "blocked":
+        _request_audit_blocked_notify(db, t, user, checks)
     return _audit_out(audit, t.task_id)
 
 
@@ -217,6 +219,7 @@ def start_task(task_id: str, payload: TaskStartIn, db: Session = Depends(get_db)
     ))
     db.commit()
     db.refresh(t)
+    _request_create_feishu_task(db, t, user)
     return _task_out(t, _meeting_id(db, t), exp.experiment_id)
 
 
@@ -521,3 +524,68 @@ def _query_unresolved_failure_boundaries(db: Session, experiment_id: int) -> lis
             "next_step": fb.get("next_step"),
         })
     return out
+
+
+# === 反向联动（平台 → 飞书编排器，非阻断）===
+
+def _feishu_candidate_for_task(db: Session, t: Task):
+    """为任务构建飞书动作所需的扁平候选 + 来源会议；无候选返回 (None, meeting)。"""
+    from app.db.models import Candidate, Meeting
+    from app.services.feishu_client import candidate_dict_from_candidates
+
+    meeting = db.get(Meeting, t.meeting_id)
+    cand_row = db.query(Candidate).filter(Candidate.meeting_id == t.meeting_id).first()
+    candidate = candidate_dict_from_candidates(cand_row.candidates if cand_row else None)
+    return candidate, meeting
+
+
+def _request_create_feishu_task(db: Session, t: Task, user: User) -> None:
+    """任务启动后请求飞书侧创建任务（create_task），失败不阻断主业务。"""
+    try:
+        from app.services.feishu_client import actor_user_id_for, send_feishu_action
+
+        candidate, meeting = _feishu_candidate_for_task(db, t)
+        if candidate is None or meeting is None:
+            return
+        if t.assignee_id:
+            assignee = db.get(User, t.assignee_id)
+            candidate["assignee"] = assignee.username if assignee else ""
+        candidate["due_date"] = t.due_date.isoformat() if t.due_date else None
+        send_feishu_action(
+            action_type="create_task",
+            actor_user_id=actor_user_id_for(user),
+            candidate_id=candidate.get("candidate_id"),
+            payload={
+                "candidate": candidate,
+                "meeting_title": meeting.title,
+                "source_url": meeting.source_url or "",
+            },
+            idempotency_key=f"create_task:{t.task_id}",
+        )
+    except Exception:  # noqa: BLE001
+        pass
+
+
+def _request_audit_blocked_notify(db: Session, t: Task, user: User, checks: dict) -> None:
+    """行动前审计阻断时请求飞书侧下发告警通知（notify），失败不阻断主业务。"""
+    try:
+        from app.services.feishu_client import actor_user_id_for, send_feishu_action
+
+        receive_id = actor_user_id_for(user) or "reviewer"
+        if t.assignee_id:
+            assignee = db.get(User, t.assignee_id)
+            receive_id = (assignee.username if assignee else "") or receive_id
+        reason = "; ".join(checks.get("reasons") or ["行动前审计未通过"])
+        send_feishu_action(
+            action_type="notify",
+            actor_user_id=actor_user_id_for(user),
+            candidate_id=None,
+            payload={
+                "receive_id": receive_id,
+                "title": "行动前审计阻断",
+                "reason": reason,
+            },
+            idempotency_key=f"audit_blocked:{t.task_id}",
+        )
+    except Exception:  # noqa: BLE001
+        pass

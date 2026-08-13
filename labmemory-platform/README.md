@@ -343,6 +343,8 @@ conda run -n labmemory python -m scripts.mock_feishu_push demo \
 
 接口契约见 `app/contracts/*.schema.json`，与 `feishu-orchestrator` 共享。
 
+> **反向联动（平台 → 编排器）**：平台在「复核待办 / 任务启动 / 知识发布 / 审计阻断」四个节点通过 `app/services/feishu_client.py` 向编排器 `POST /webhook/platform` 下发 `FeishuActionRequest`（`send_card` / `create_task` / `publish_doc` / `notify`）。默认 `FEISHU_ORCHESTRATOR_MODE=mock` 不真调；设为 `real` 并配置 `FEISHU_ORCHESTRATOR_BASE_URL` 后真调（编排器 `RUN_MODE=mock` 即可端到端验证，无需真飞书凭证）。验证脚本：`python -m scripts.reverse_linkage_check`。
+
 ## 关键 API
 
 ### 平台前端 API

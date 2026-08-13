@@ -510,6 +510,7 @@ result = pipeline_orchestrator.run_from_minutes_url(
 |------|------|------|
 | `/webhook/event` | POST | 接收飞书事件订阅（v2.0 格式） |
 | `/webhook/card` | POST | 接收交互卡片回调 |
+| `/webhook/platform` | POST | 接收平台下发的 `FeishuActionRequest`（反向联动：send_card / create_task / publish_doc / notify / update_base，幂等） |
 | `/health` | GET | 健康检查 |
 
 **功能**：

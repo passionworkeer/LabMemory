@@ -160,6 +160,7 @@ def publish_result(
     except Exception:
         pass
 
+    _request_publish_doc(db, t, res)
     return _result_out(res, t.task_id if t else "", t.planned_params if t else None)
 
 
@@ -190,3 +191,41 @@ def _result_out(r: Result, task_id: str, planned_params: dict | None = None) -> 
         notes=r.notes,
         planned_params=planned_params,
     )
+
+
+# === 反向联动（平台 → 飞书编排器，非阻断）===
+
+def _request_publish_doc(db: Session, t: Task | None, res: Result) -> None:
+    """知识发布后请求飞书侧发布知识文档（publish_doc），失败不阻断主业务。"""
+    if t is None:
+        return
+    try:
+        from app.db.models import Candidate, Meeting
+        from app.services.feishu_client import actor_user_id_for, candidate_dict_from_candidates, send_feishu_action
+
+        meeting = db.get(Meeting, t.meeting_id)
+        cand_row = db.query(Candidate).filter(Candidate.meeting_id == t.meeting_id).first()
+        candidate = candidate_dict_from_candidates(cand_row.candidates if cand_row else None)
+        if candidate is None or meeting is None:
+            return
+
+        doc_type = {
+            "supported": "success",
+            "refuted": "failure",
+            "partially_supported": "failure",
+        }.get(res.knowledge_status, "pending")
+
+        actor = db.get(User, res.publisher_id) if res.publisher_id else None
+        send_feishu_action(
+            action_type="publish_doc",
+            actor_user_id=actor_user_id_for(actor),
+            candidate_id=candidate.get("candidate_id"),
+            payload={
+                "candidate": candidate,
+                "meeting_title": meeting.title,
+                "doc_type": doc_type,
+            },
+            idempotency_key=f"publish_doc:{res.result_id}",
+        )
+    except Exception:  # noqa: BLE001
+        pass

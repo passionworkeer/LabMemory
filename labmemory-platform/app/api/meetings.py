@@ -124,6 +124,8 @@ def receive_candidate(payload: CandidatePackageIn, db: Session = Depends(get_db)
         {"candidate_id": c.get("candidate_id"), "status": "pending_review"}
         for c in (payload.candidates or [])
     ]
+    if created:
+        _request_review_cards(db, meeting, payload.candidates or [])
     return {
         "id": cand_id,
         "created": created,
@@ -253,6 +255,39 @@ def confirm_review(
 
 
 # === 内部辅助 ===
+
+def _request_review_cards(db: Session, meeting: Meeting, candidates: list[dict]) -> None:
+    """反向联动：请求飞书侧下发复核卡片（≤3 张，非阻断，fire-and-forget）。"""
+    try:
+        from app.services.feishu_client import send_feishu_action
+        receive_id = meeting.organizer or (meeting.participants or [None])[0] or "reviewer"
+        for c in [c for c in candidates if c.get("needs_review", True)][:3]:
+            candidate = {
+                "candidate_id": c.get("candidate_id"),
+                "type": c.get("type"),
+                "title": c.get("title"),
+                "description": c.get("description"),
+                "experiment_ref": c.get("experiment_ref"),
+                "parameters": c.get("parameters", []),
+                "confidence": c.get("confidence"),
+                "evidence": c.get("evidence", []),
+                "status": c.get("status"),
+            }
+            send_feishu_action(
+                action_type="send_card",
+                actor_user_id=receive_id,
+                candidate_id=c.get("candidate_id"),
+                payload={
+                    "receive_id": receive_id,
+                    "candidate": candidate,
+                    "meeting_title": meeting.title,
+                    "source_url": meeting.source_url or "",
+                },
+                idempotency_key=f"review_card:{meeting.meeting_id}:{c.get('candidate_id')}",
+            )
+    except Exception:  # noqa: BLE001
+        pass
+
 
 def _get_meeting_review(db: Session, meeting_id: str):
     m = db.query(Meeting).filter(Meeting.meeting_id == meeting_id).first()
