@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Loading, ErrorState } from "../components/State";
 import { useParams } from "react-router-dom";
 import { apiPublishResult, apiStartTask, apiSubmitResult } from "../api";
 import { dialog } from "../dialog";
@@ -149,8 +150,8 @@ export default function ResultBackflow() {
     }
   };
 
-  if (err && !meeting) return <div className="text-red-500">{err}</div>;
-  if (!meeting) return <div className="text-slate-400">加载中...</div>;
+  if (err && !meeting) return <ErrorState message={err} />;
+  if (!meeting) return <Loading />;
 
   const task = meeting.task;
   const audit = meeting.audit;

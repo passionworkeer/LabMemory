@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../store";
+import AnimatedBackground from "./AnimatedBackground";
 
 const ROLE_LABEL: Record<string, string> = {
   pi: "项目负责人",
@@ -110,7 +111,7 @@ function SidebarLink({ item, firstSegment }: { item: NavItem; firstSegment: stri
       {active && (
         <span
           className="w-1.5 h-1.5 rounded-full"
-          style={{ background: "#7aa7ff", boxShadow: "0 0 6px #7aa7ff" }}
+          style={{ background: "#5eead4", boxShadow: "0 0 6px #22b8cf" }}
         />
       )}
     </NavLink>
@@ -130,19 +131,24 @@ export default function Layout() {
 
   return (
     <div className="grid h-screen" style={{ gridTemplateColumns: "240px minmax(0,1fr)" }}>
+      <AnimatedBackground />
       <aside
-        className="flex flex-col text-white sticky top-0 h-screen"
-        style={{ background: "linear-gradient(180deg, #0e1e3c 0%, #142850 100%)", padding: "20px 14px" }}
+        className="flex flex-col text-white sticky top-0 h-screen relative z-10"
+        style={{
+          background: "linear-gradient(180deg, #0a1a38 0%, #0e2650 55%, #0d3055 100%)",
+          padding: "20px 14px",
+          borderRight: "1px solid rgba(34, 184, 207, 0.18)",
+        }}
       >
         {/* Logo */}
         <div className="flex gap-3 items-center px-2 pb-5 border-b border-white/10">
           <div
-            className="rounded-xl font-extrabold grid place-items-center"
+            className="logo-glow rounded-xl font-extrabold grid place-items-center"
             style={{
               width: 42,
               height: 42,
-              background: "linear-gradient(135deg,#4b80ff,#7c5cff)",
-              boxShadow: "0 4px 14px rgba(124, 92, 255, 0.4)",
+              background: "linear-gradient(135deg,#3370ff,#22b8cf)",
+              animation: "glow-breathe 4s ease-in-out infinite",
             }}
           >
             LM
@@ -184,7 +190,7 @@ export default function Layout() {
             <div
               className="w-9 h-9 rounded-lg grid place-items-center font-bold text-sm"
               style={{
-                background: "linear-gradient(135deg, #4b80ff, #7c5cff)",
+                background: "linear-gradient(135deg, #3370ff, #22b8cf)",
               }}
             >
               {user.display_name.charAt(0)}
@@ -240,15 +246,17 @@ export default function Layout() {
 
       </aside>
 
-      <main className="min-w-0 flex flex-col h-screen overflow-hidden">
+      <main className="min-w-0 flex flex-col h-screen overflow-hidden relative z-10">
         {location.pathname !== "/tower" && location.pathname !== "/qa" && (
           <header
             className="flex-shrink-0 flex items-center px-6 gap-3"
             style={{
               height: 64,
-              background: "rgba(255,255,255,.85)",
-              backdropFilter: "blur(12px)",
-              borderBottom: "1px solid var(--line)",
+              background: "rgba(255,255,255,.65)",
+              backdropFilter: "blur(14px) saturate(150%)",
+              WebkitBackdropFilter: "blur(14px) saturate(150%)",
+              borderBottom: "1px solid rgba(223,232,242,.8)",
+              boxShadow: "0 1px 12px rgba(26,45,85,0.04)",
             }}
           >
             <PageHeader />

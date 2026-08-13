@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Loading, ErrorState } from "../components/State";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   apiAckFailureBoundary,
@@ -177,8 +178,8 @@ export default function ActionAudit() {
     }
   };
 
-  if (err && !compare) return <div className="text-red-500">{err}</div>;
-  if (!compare) return <div className="text-slate-400">加载中...</div>;
+  if (err && !compare) return <ErrorState message={err} />;
+  if (!compare) return <Loading />;
 
   const audit = compare.audit as ActionAuditOut | null | undefined;
   const task = compare.task;

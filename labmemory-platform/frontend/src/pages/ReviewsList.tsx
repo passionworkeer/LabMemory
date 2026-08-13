@@ -52,7 +52,7 @@ export default function ReviewsList() {
         <span className="text-xs muted">当前显示 {filtered.length} / 共 {data.length} 条会议记录</span>
       </div>
 
-      {err && <div className="text-red-500 mb-3 text-sm">{err}</div>}
+      {err && <div className="alert-inline error"><span className="ai-icon">⚠</span><span>{err}</span></div>}
 
       {/* List */}
       <div className="space-y-3">

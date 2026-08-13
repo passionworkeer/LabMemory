@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Loading, ErrorState } from "../components/State";
 import { Link, useParams } from "react-router-dom";
 import { apiGetBrief } from "../api";
 import type { ExperimentBrief } from "../types";
@@ -13,8 +14,8 @@ export default function PreMeetingBrief() {
     apiGetBrief(experimentId).then(setData).catch((e) => setErr(e.message));
   }, [experimentId]);
 
-  if (err) return <div className="text-red-500">{err}</div>;
-  if (!data) return <div className="text-slate-400">加载中...</div>;
+  if (err) return <ErrorState message={err} />;
+  if (!data) return <Loading />;
 
   const cc = data.current_claim;
   const pv = cc?.parameter_version;

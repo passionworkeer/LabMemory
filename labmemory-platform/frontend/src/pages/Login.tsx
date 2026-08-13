@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { apiLogin } from "../api";
 import { useAuth } from "../store";
+import AnimatedBackground from "../components/AnimatedBackground";
 
 export default function Login() {
   const [username, setUsername] = useState("pi");
@@ -29,57 +30,33 @@ export default function Login() {
   };
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center p-4"
-      style={{
-        background:
-          "linear-gradient(135deg, #0e1e3c 0%, #1d4e9f 50%, #655eea 100%)",
-      }}
-    >
-      <div
-        className="fixed"
-        style={{
-          width: 500,
-          height: 500,
-          borderRadius: "50%",
-          top: -200,
-          right: -100,
-          background: "rgba(255,255,255,0.05)",
-        }}
-      />
-      <div
-        className="fixed"
-        style={{
-          width: 300,
-          height: 300,
-          borderRadius: "50%",
-          bottom: -100,
-          left: -50,
-          background: "rgba(124, 92, 255, 0.15)",
-        }}
-      />
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <AnimatedBackground strong />
 
-      <div className="relative w-full max-w-md">
+      <div className="relative z-10 w-full max-w-md">
         <div className="text-center mb-6">
           <div
             className="w-16 h-16 rounded-2xl font-extrabold text-white text-2xl grid place-items-center mx-auto mb-3"
             style={{
-              background: "linear-gradient(135deg, #4b80ff, #7c5cff)",
-              boxShadow: "0 10px 30px rgba(124, 92, 255, 0.4)",
+              background: "linear-gradient(135deg, #3370ff, #22b8cf)",
+              animation: "glow-breathe 4s ease-in-out infinite, float-y 5s ease-in-out infinite",
             }}
           >
             LM
           </div>
-          <h1 className="text-2xl font-bold text-white">LabMemory 晶研智流</h1>
-          <p className="text-sm text-blue-200 mt-1">可信实验决策与记忆平台</p>
+          <h1 className="text-2xl font-bold gradient-text">LabMemory 晶研智流</h1>
+          <p className="text-sm mt-1" style={{ color: "#5a7ba6" }}>可信实验决策与记忆平台</p>
         </div>
 
         <div
           className="rounded-2xl p-8"
           style={{
-            background: "rgba(255,255,255,0.98)",
-            boxShadow: "0 20px 60px rgba(14, 30, 60, 0.3)",
-            backdropFilter: "blur(10px)",
+            background: "rgba(255,255,255,0.78)",
+            border: "1px solid rgba(255,255,255,0.7)",
+            boxShadow:
+              "0 24px 64px rgba(26, 45, 85, 0.14), inset 0 1px 0 rgba(255,255,255,0.9)",
+            backdropFilter: "blur(20px) saturate(160%)",
+            WebkitBackdropFilter: "blur(20px) saturate(160%)",
           }}
         >
           <h2 className="text-lg font-bold mb-1">欢迎登录</h2>
@@ -122,8 +99,8 @@ export default function Login() {
               disabled={loading}
               className="w-full py-3 rounded-xl text-white font-semibold transition hover:opacity-90 active:scale-[0.99]"
               style={{
-                background: "linear-gradient(135deg, #3370ff, #7c5cff)",
-                boxShadow: "0 4px 14px rgba(51, 112, 255, 0.4)",
+                background: "linear-gradient(135deg, #3370ff, #22b8cf)",
+                boxShadow: "0 6px 18px rgba(51, 112, 255, 0.38)",
               }}
             >
               {loading ? "登录中..." : "登 录"}
@@ -150,7 +127,7 @@ export default function Login() {
           </div>
         </div>
 
-        <p className="text-center text-xs text-blue-200/70 mt-5">
+        <p className="text-center text-xs mt-5" style={{ color: "#7d94b5" }}>
           © 2026 LabMemory · 晶研智流 · 溯研 LabTrace
         </p>
       </div>

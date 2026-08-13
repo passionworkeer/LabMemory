@@ -55,7 +55,7 @@ export default function Experiments() {
 
   return (
     <div className="fade-in">
-      {err && <div className="text-red-500 text-sm mb-3">{err}</div>}
+      {err && <div className="alert-inline error"><span className="ai-icon">⚠</span><span>{err}</span></div>}
 
       <div className="card mb-5">
         <div className="section-title">

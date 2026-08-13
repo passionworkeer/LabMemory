@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiListPassports } from "../api";
+import { Loading } from "../components/State";
 import type { PassportSummaryOut } from "../types";
 
 const ROLE_LABEL: Record<string, string> = { pi: "PI", lead: "Lead", executor: "Exec" };
@@ -74,10 +75,10 @@ export default function PassportList() {
         </div>
       )}
 
-      {err && <div className="text-red-500 text-sm mb-3">{err}</div>}
+      {err && <div className="alert-inline error"><span className="ai-icon">⚠</span><span>{err}</span></div>}
 
       {busy && !items.length ? (
-        <div className="text-slate-400 text-sm py-10 text-center">加载中...</div>
+        <Loading />
       ) : items.length === 0 ? (
         <div className="card">
           <div className="empty-state">

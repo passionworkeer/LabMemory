@@ -200,7 +200,7 @@ export default function TrustedQA() {
             style={{
               padding: "14px 20px",
               borderBottom: "1px solid var(--line-light)",
-              background: "linear-gradient(180deg, #fafcff 0%, #fff 100%)",
+              background: "linear-gradient(180deg, rgba(250,252,255,0.85) 0%, rgba(255,255,255,0.4) 100%)",
             }}
           >
             <div className="flex items-center gap-2.5">
@@ -305,7 +305,7 @@ export default function TrustedQA() {
             style={{
               padding: "14px 20px 18px",
               borderTop: "1px solid var(--line-light)",
-              background: "#fafcff",
+              background: "rgba(250,252,255,0.72)",
             }}
           >
             <input
@@ -544,12 +544,12 @@ export default function TrustedQA() {
           width: 36px;
           height: 36px;
           border-radius: 11px;
-          background: linear-gradient(135deg, #3370ff 0%, #7357d8 100%);
+          background: linear-gradient(135deg, #3370ff 0%, #22b8cf 100%);
           color: #fff;
           display: grid;
           place-items: center;
           flex-shrink: 0;
-          box-shadow: 0 2px 8px rgba(51, 112, 255, 0.22);
+          box-shadow: 0 2px 8px rgba(34, 184, 207, 0.28);
         }
         .user-avatar {
           width: 36px;
@@ -567,7 +567,7 @@ export default function TrustedQA() {
           height: 42px;
           border-radius: 11px;
           border: none;
-          background: linear-gradient(135deg, #3370ff 0%, #5a8dff 100%);
+          background: linear-gradient(135deg, #3370ff 0%, #22b8cf 100%);
           color: #fff;
           cursor: pointer;
           display: grid;
@@ -626,7 +626,7 @@ export default function TrustedQA() {
           gap: 8px;
           padding: 7px 10px;
           border-radius: 8px;
-          background: #fff;
+          background: rgba(255, 255, 255, 0.85);
           border: 1px solid var(--line-light);
           font-size: 12px;
           transition: all 0.15s ease;
@@ -688,7 +688,7 @@ function MessageBubble({
           <div
             style={{
               display: "inline-block",
-              background: "linear-gradient(135deg, #3370ff 0%, #5a8dff 100%)",
+              background: "linear-gradient(135deg, #3370ff 0%, #22b8cf 100%)",
               color: "#fff",
               padding: "10px 14px",
               borderRadius: 14,

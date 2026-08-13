@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { apiGetPassport } from "../api";
+import { Loading } from "../components/State";
 import type { ExperimentPassport } from "../types";
 
 export default function ExperimentPassport() {
@@ -18,7 +19,9 @@ export default function ExperimentPassport() {
 
   return (
     <div className="fade-in">
-      {err && <div className="text-red-500 text-sm mb-3">{err}</div>}
+      {err && <div className="alert-inline error"><span className="ai-icon">⚠</span><span>{err}</span></div>}
+
+      {!data && !err && <Loading />}
 
       {data && (
         <>

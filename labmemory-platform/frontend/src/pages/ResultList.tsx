@@ -120,7 +120,7 @@ export default function ResultList() {
         <span className="text-xs muted">当前显示 {filtered.length} / 共 {withTask.length} 个任务</span>
       </div>
 
-      {err && <div className="text-red-500 mb-3 text-sm">{err}</div>}
+      {err && <div className="alert-inline error"><span className="ai-icon">⚠</span><span>{err}</span></div>}
 
       <div className="space-y-3">
         {filtered.length === 0 && (

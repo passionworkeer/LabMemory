@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Loading, ErrorState } from "../components/State";
 import { Link, useParams } from "react-router-dom";
 import { apiConfirmReview, apiGetMeeting } from "../api";
 import { dialog } from "../dialog";
@@ -16,8 +17,8 @@ export default function DecisionCompiler() {
   };
   useEffect(load, [meetingId]);
 
-  if (err) return <div className="text-red-500">{err}</div>;
-  if (!data) return <div className="text-slate-400">加载中...</div>;
+  if (err) return <ErrorState message={err} />;
+  if (!data) return <Loading />;
 
   const paramCandidates = data.candidates.filter((c) => c.type === "parameter_change");
   const risks = data.candidates.filter((c) => c.type === "risk");

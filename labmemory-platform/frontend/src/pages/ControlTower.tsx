@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Loading, ErrorState } from "../components/State";
 import { useNavigate } from "react-router-dom";
 import { apiControlTower, apiResetDemo } from "../api";
 import { dialog } from "../dialog";
@@ -36,8 +37,8 @@ export default function ControlTower() {
   };
   useEffect(load, []);
 
-  if (err) return <div className="text-red-500">{err}</div>;
-  if (!data) return <div className="text-slate-400">加载中...</div>;
+  if (err) return <ErrorState message={err} />;
+  if (!data) return <Loading />;
 
   const kpis = [
     { label: "待复核候选", value: data.pending_reviews, sub: "会议决策待确认", icon: "📋", color: "var(--blue)", bg: "var(--blue-soft)" },
@@ -53,8 +54,8 @@ export default function ControlTower() {
       <div
         className="rounded-2xl p-7 text-white relative overflow-hidden mb-6"
         style={{
-          background: "linear-gradient(135deg,#0e1e3c 0%,#1d4e9f 55%,#655eea 100%)",
-          boxShadow: "0 10px 30px rgba(26,45,85,0.15)",
+          background: "linear-gradient(135deg,#0a1a38 0%,#10457f 55%,#178fa6 100%)",
+          boxShadow: "0 12px 32px rgba(16,69,127,0.28)",
         }}
       >
         <div
@@ -76,7 +77,7 @@ export default function ControlTower() {
             borderRadius: "50%",
             right: 100,
             bottom: -100,
-            background: "rgba(124, 92, 255, 0.15)",
+            background: "rgba(34, 184, 207, 0.2)",
           }}
         />
         <div className="relative">
@@ -191,16 +192,16 @@ export default function ControlTower() {
       <div
         className="rounded-xl p-4 text-sm flex items-start justify-between gap-4 flex-wrap"
         style={{
-          background: "var(--purple-soft)",
-          border: "1px solid #ddd3ff",
-          color: "#5c47a6",
+          background: "var(--cyan-soft)",
+          border: "1px solid #b9e8ef",
+          color: "#0b8a9e",
         }}
       >
         <div className="flex items-start gap-3 min-w-0 flex-1">
           <span className="text-lg leading-none flex-shrink-0">💡</span>
           <div className="min-w-0">
             <b>快速开始 Demo</b>
-            <p className="mt-1 text-xs leading-relaxed" style={{ color: "#7a64c9" }}>
+            <p className="mt-1 text-xs leading-relaxed" style={{ color: "#33a0b2" }}>
               从"会后复核"开始 → 选择待确认会议 → 修改后确认 → 行动审计 → 结果回流 → 实验护照，完整跑通端到端闭环。
             </p>
           </div>
@@ -208,7 +209,7 @@ export default function ControlTower() {
         <div className="flex items-center gap-2 flex-wrap flex-shrink-0">
           <button
             className="btn sm"
-            style={{ background: "rgba(255,255,255,0.7)", borderColor: "#c4b6f0", color: "#5c47a6" }}
+            style={{ background: "rgba(255,255,255,0.75)", borderColor: "#9fdde8", color: "#0b8a9e" }}
             onClick={() => handleReset("pending")}
             disabled={resetBusy}
           >
@@ -216,7 +217,7 @@ export default function ControlTower() {
           </button>
           <button
             className="btn sm"
-            style={{ background: "rgba(255,255,255,0.7)", borderColor: "#c4b6f0", color: "#5c47a6" }}
+            style={{ background: "rgba(255,255,255,0.75)", borderColor: "#9fdde8", color: "#0b8a9e" }}
             onClick={() => handleReset("full")}
             disabled={resetBusy}
           >
@@ -224,7 +225,7 @@ export default function ControlTower() {
           </button>
           <button
             className="btn sm ghost"
-            style={{ background: "rgba(255,255,255,0.5)", borderColor: "#c4b6f0", color: "#5c47a6" }}
+            style={{ background: "rgba(255,255,255,0.5)", borderColor: "#9fdde8", color: "#0b8a9e" }}
             onClick={() => handleReset("clear")}
             disabled={resetBusy}
           >
