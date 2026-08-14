@@ -29,10 +29,11 @@ class LoginRateLimitedError(DomainError):
 
 
 def _client_ip(request: Request) -> str:
-    """取客户端 IP（反向代理场景优先 X-Forwarded-For 首段）。"""
+    """取客户端 IP（反向代理场景取 X-Forwarded-For 末段——由 nginx 追加的真实直连 IP，
+    首段可被客户端伪造轮换，用于限速会被绕过）。"""
     forwarded = request.headers.get("X-Forwarded-For", "")
     if forwarded:
-        return forwarded.split(",")[0].strip()
+        return forwarded.split(",")[-1].strip()
     return request.client.host if request.client else "unknown"
 
 
