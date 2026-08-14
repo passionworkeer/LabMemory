@@ -1,4 +1,4 @@
-"""可信知识问答 RAG 入口 + 会话生命周期管理。
+"""可信知识问答 RAG 入口 + 会话生命周期管理 + 流式 SSE。
 
 按 PRD 8.6 与 decision-qa 规格实现：
 - 权限前置过滤（按实验成员关系）
@@ -8,10 +8,14 @@
 - 带出处回答
 - 无可靠证据时明确拒答
 - 会话级历史持久化（按 user_id 隔离，刷新可回放）
+- 流式 SSE 端点 POST /api/qa/ask/stream，按阶段反馈意图/检索/回答进度
 """
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -37,6 +41,34 @@ def ask(payload: QAAskIn, db: Session = Depends(get_db), user: User = Depends(ge
     # （retrieval_details.vector_available=false），不再返回 503（decision-qa 降级规格）。
     result = rag.ask(db, user, payload.question, payload.session_id, payload.session_title)
     return QAAnswerOut(**result)
+
+
+@router.post("/ask/stream")
+def ask_stream(
+    payload: QAAskIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """SSE 流式问答：按阶段 emit session/intent/retrieval_started/retrieval_completed/
+    answer_started/answer/refused/done 事件，前端据此切换打字机文案与流式渲染答案。
+
+    与同步 `POST /api/qa/ask` 共用 `rag.ask_stream_events` 生成器，逻辑零重复。
+    """
+    def gen():
+        for event_name, data in rag.ask_stream_events(
+            db, user, payload.question, payload.session_id, payload.session_title
+        ):
+            payload_str = json.dumps(data, ensure_ascii=False)
+            yield f"event: {event_name}\ndata: {payload_str}\n\n"
+
+    return StreamingResponse(
+        gen(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",  # 防 nginx 等代理缓冲
+        },
+    )
 
 
 @router.get("/sessions", response_model=list[QASessionOut])
@@ -81,6 +113,8 @@ def get_session(
         archived=session.archived,
         last_message_at=session.last_message_at,
         created_at=session.created_at,
+        summary=session.summary,
+        summary_cursor=session.summary_cursor,
         messages=[
             {
                 "id": m.id,
@@ -91,6 +125,7 @@ def get_session(
                 "retrieval_details": m.retrieval_details_json,
                 "model_info": m.model_info_json,
                 "missing_conditions": m.missing_conditions_json,
+                "intent": m.intent,
                 "created_at": m.created_at,
             }
             for m in msgs

@@ -77,43 +77,44 @@ def test_qa_degrades_without_vector_not_503(client: TestClient):
 
 # ---------------- 检索意图门控 ----------------
 def test_qa_smalltalk_skips_retrieval(client: TestClient):
-    """意图门控：寒暄直答，不触发任何检索阶段（不嵌入/不召回），且照常落库。"""
+    """意图 agent：寒暄类问题判 chat，跳过全部检索阶段（不嵌入/不召回），由回答 agent 直答，照常落库。"""
     token = _login(client, "pi")
     r = client.post("/api/qa/ask", json={"question": "你好"}, headers=_headers_user(token))
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["refused"] is False, "寒暄直答不得拒答"
-    assert body["citations"] == [], "直答轮不得携带引用"
-    assert body["answer"].strip(), "直答应返回非空文本"
+    assert body["citations"] == [], "chat 轮不得携带引用"
+    assert body["answer"].strip(), "chat 轮应返回非空文本"
     rd = body["retrieval_details"]
-    assert rd.get("retrieval_skipped") is True
-    assert rd.get("intent") == "greeting"
-    # 直答轮不得以 0 值冒充真实检索阶段计数
+    assert rd.get("skipped_by_intent") is True
+    assert rd.get("intent") == "chat"
+    # chat 轮不得以 0 值冒充真实检索阶段计数
     assert "bm25_hits" not in rd and "vector_hits" not in rd
-    assert body["model_info"]["embedding_mode"] == "skipped", "直答轮未执行嵌入"
-    # 直答轮照常持久化（user + assistant 两条）
+    assert body["model_info"]["embedding_mode"] == "skipped", "chat 轮未执行嵌入"
+    # chat 轮照常持久化（user + assistant 两条），user 消息记录 intent
     sid = body["session_id"]
     r2 = client.get(f"/api/qa/sessions/{sid}", headers=_headers_user(token))
     assert r2.status_code == 200, r2.text
     msgs = r2.json()["messages"]
     assert [m["role"] for m in msgs] == ["user", "assistant"]
-    assert msgs[1]["retrieval_details"].get("retrieval_skipped") is True, "刷新后应无损回放直答轮"
+    assert msgs[0]["intent"] == "chat", "user 消息应记录 intent"
+    assert msgs[1]["retrieval_details"].get("skipped_by_intent") is True, "刷新后应无损回放 chat 轮"
 
 
 def test_qa_thanks_goodbye_meta_skip_retrieval(client: TestClient):
-    """感谢/告别/能力询问均直答并标记对应意图。"""
+    """感谢/告别/能力询问均由意图 agent 判 chat，跳过检索。"""
     token = _login(client, "pi")
-    for text, intent in [("谢谢", "thanks"), ("再见", "goodbye"), ("你能做什么", "meta")]:
+    for text in ("谢谢", "再见", "你能做什么"):
         r = client.post("/api/qa/ask", json={"question": text}, headers=_headers_user(token))
         assert r.status_code == 200, f"{text}: {r.text}"
         body = r.json()
         assert body["refused"] is False, text
-        assert body["retrieval_details"].get("retrieval_skipped") is True, text
-        assert body["retrieval_details"].get("intent") == intent, text
+        assert body["retrieval_details"].get("skipped_by_intent") is True, text
+        assert body["retrieval_details"].get("intent") == "chat", text
 
 
 def test_qa_mixed_content_failsafe_to_retrieval(client: TestClient):
-    """fail-safe：寒暄+知识混合内容必须走完整检索管线，不得直答寒暄而漏掉知识部分。"""
+    """fail-safe：寒暄+知识混合内容必须走完整检索管线，不得判 chat 而漏掉知识部分。"""
     token = _login(client, "pi")
     r = client.post(
         "/api/qa/ask",
@@ -122,7 +123,7 @@ def test_qa_mixed_content_failsafe_to_retrieval(client: TestClient):
     )
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["retrieval_details"].get("retrieval_skipped") is not True
+    assert body["retrieval_details"].get("skipped_by_intent") is not True
     assert "bm25_hits" in body["retrieval_details"], "混合内容必须走完整检索管线"
 
 

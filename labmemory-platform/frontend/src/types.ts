@@ -317,6 +317,7 @@ export interface QAMessageOut {
   retrieval_details?: QARetrievalDetails | null;
   model_info?: QAModelInfo | null;
   missing_conditions?: string[] | null;
+  intent?: string | null;
   created_at: string;
 }
 
@@ -330,6 +331,8 @@ export interface QASessionOut {
 }
 
 export interface QASessionDetailOut extends QASessionOut {
+  summary?: string | null;
+  summary_cursor?: number | null;
   messages: QAMessageOut[];
 }
 

@@ -61,8 +61,6 @@ class Settings(BaseSettings):
     # 知识问答生成的 max_tokens。推理型模型（如 deepseek-v4-flash）的 reasoning_tokens 计入
     # completion_tokens，预算不足时 content 会被截断为空串（finish_reason=length），须给足。
     DEEPSEEK_MAX_TOKENS: int = 4000
-    # 寒暄直答的 max_tokens（回答短，但同样需为 reasoning 预留）
-    DEEPSEEK_DIRECT_MAX_TOKENS: int = 500
 
     # RAG 检索参数
     RAG_TOP_K: int = 5
@@ -74,12 +72,18 @@ class Settings(BaseSettings):
     RAG_STATUS_WEIGHT: float = 0.15
 
     # 可信问答会话与历史
-    # 传给 LLM 的历史消息条数上限（user+assistant 交替，6 条 = 3 轮 Q&A）
-    QA_HISTORY_TURNS: int = 6
+    # 传给回答 agent 的历史轮数上限（1 轮 = user+assistant 一对，10 轮 = 20 条消息）
+    QA_HISTORY_TURNS: int = 10
     # 单会话详情响应返回的最大消息数（最旧不返回但仍在库）
     QA_SESSION_MAX_MESSAGES: int = 200
     # 会话列表默认分页大小
     QA_SESSION_LIST_DEFAULT_LIMIT: int = 20
+    # 意图识别 agent 总开关；false 时所有问题都走 RAG（向后兼容降级）
+    QA_ENABLE_LLM_INTENT: bool = True
+    # 意图 agent 模型（默认沿用 DEEPSEEK_CHAT_MODEL）
+    QA_INTENT_MODEL: str = ""
+    # 摘要正文存库硬上限（字符数）
+    QA_SUMMARY_MAX_CHARS: int = 600
 
     PROJECT_ROOT: Path = Field(default_factory=lambda: Path(__file__).resolve().parents[1])
 

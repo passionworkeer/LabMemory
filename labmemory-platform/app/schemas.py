@@ -347,6 +347,7 @@ class QAMessageOut(LabMemoryBase):
     retrieval_details: dict | None = None
     model_info: dict | None = None
     missing_conditions: list[str] | None = None
+    intent: str | None = None
     created_at: datetime
 
     class Config:
@@ -371,6 +372,8 @@ class QASessionDetailOut(LabMemoryBase):
     archived: bool = False
     last_message_at: datetime | None = None
     created_at: datetime
+    summary: str | None = None
+    summary_cursor: int | None = None
     messages: list[QAMessageOut] = []
 
     class Config:

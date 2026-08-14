@@ -262,6 +262,10 @@ class QASession(Base, IDMixin, TimestampMixin):
     title: Mapped[str] = mapped_column(String(128), nullable=False)
     archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    # 滚动摘要：超出 QA_HISTORY_TURNS 窗口的旧消息折叠后的正文
+    summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 已折叠进 summary 的最大 message_id（幂等游标，单调递增）
+    summary_cursor: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
     messages: Mapped[list[QAMessage]] = relationship(
         back_populates="session",
@@ -284,5 +288,7 @@ class QAMessage(Base, IDMixin, TimestampMixin):
     retrieval_details_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     model_info_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     missing_conditions_json: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    # 仅 user 消息记录意图：rag / chat（意图 agent 判定结果，用于回放与统计）
+    intent: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     session: Mapped[QASession] = relationship(back_populates="messages")

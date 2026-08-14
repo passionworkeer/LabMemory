@@ -9,6 +9,7 @@ import type {
   PassportSummaryOut,
   ProjectOut,
   QAAnswerOut,
+  QACitation,
   QASessionDetailOut,
   QASessionOut,
   ResultOut,
@@ -220,6 +221,123 @@ export const apiAskQuestion = (
       ...(sessionTitle ? { session_title: sessionTitle } : {}),
     }),
   });
+
+export type QAStreamEvent =
+  | { name: "session"; data: { session_id: string | null; session_title: string | null } }
+  | { name: "intent"; data: { intent: "rag" | "chat"; reason: string } }
+  | { name: "retrieval_started"; data: Record<string, never> }
+  | {
+      name: "retrieval_completed";
+      data: { retrieval_details: Record<string, unknown>; citations: QACitation[] };
+    }
+  | { name: "answer_started"; data: Record<string, never> }
+  | {
+      name: "answer";
+      data: {
+        text: string;
+        refused: boolean;
+        missing_conditions?: string[];
+        warning?: string | null;
+      };
+    }
+  | {
+      name: "refused";
+      data: {
+        reason: string;
+        missing_conditions: string[];
+        retrieval_details: Record<string, unknown>;
+      };
+    }
+  | { name: "done"; data: QAAnswerOut };
+
+/**
+ * SSE 流式问答：按阶段回调 onEvent。HTTP 非 2xx 抛 ApiError。
+ *
+ * 用 fetch + ReadableStream 而非 EventSource，因为 EventSource 不支持 POST
+ * 与 Authorization 头（需 query param 鉴权，与项目 JWT 头风格不符）。
+ */
+export async function apiAskQuestionStream(
+  question: string,
+  sessionId: string | null,
+  sessionTitle: string | null,
+  onEvent: (evt: QAStreamEvent) => void,
+): Promise<void> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "text/event-stream",
+  };
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const res = await fetch("/api/qa/ask/stream", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      question,
+      ...(sessionId ? { session_id: sessionId } : {}),
+      ...(sessionTitle ? { session_title: sessionTitle } : {}),
+    }),
+  });
+  if (res.status === 401) {
+    clearToken();
+    if (window.location.pathname !== "/login") {
+      window.location.href = "/login";
+    }
+    throw new ApiError("unauthorized", "登录已失效，请重新登录", 401);
+  }
+  if (!res.ok) {
+    let msg = res.statusText;
+    let code = "http_error";
+    try {
+      const j = await res.json();
+      msg = j.message || msg;
+      code = j.code || code;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(code, msg, res.status);
+  }
+  if (!res.body) throw new ApiError("no_stream", "响应无流式 body", res.status);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    // SSE 事件以空行分隔
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() || "";
+    for (const part of parts) {
+      const evt = parseSseEvent(part);
+      if (evt) onEvent(evt);
+    }
+  }
+  if (buffer.trim()) {
+    const evt = parseSseEvent(buffer);
+    if (evt) onEvent(evt);
+  }
+}
+
+function parseSseEvent(raw: string): QAStreamEvent | null {
+  let name = "";
+  let dataStr = "";
+  for (const line of raw.split("\n")) {
+    if (line.startsWith("event:")) name = line.slice(6).trim();
+    else if (line.startsWith("data:")) dataStr += line.slice(5).trim();
+  }
+  if (!name) return null;
+  let data: unknown = {};
+  if (dataStr) {
+    try {
+      data = JSON.parse(dataStr);
+    } catch {
+      data = {};
+    }
+  }
+  return { name, data } as QAStreamEvent;
+}
 
 export const apiListQASessions = (params?: {
   limit?: number;

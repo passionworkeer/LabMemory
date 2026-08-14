@@ -1,8 +1,13 @@
-"""RAG 编排器：意图门控 -> 权限前置过滤 -> 状态过滤 -> BM25+向量召回 -> 关系扩展 -> 重排 -> LLM 生成 -> 引用后处理。"""
+"""RAG 编排器：意图 agent -> (rag) 权限前置过滤 -> 状态过滤 -> BM25+向量召回 -> 关系扩展 -> 重排 -> 回答 agent -> 引用后处理 -> 摘要压缩。
+
+上下文窗口结构（回答 agent）：
+  [system] + [可选 history_summary system] + 最近 QA_HISTORY_TURNS 轮历史 + 本轮 user
+  - intent=rag：本轮 user 含 <context> 与 <question>
+  - intent=chat：本轮 user 仅含 <question>（跳过全部检索阶段）
+"""
 from __future__ import annotations
 
 import math
-import re
 import time
 from datetime import datetime, timezone
 
@@ -25,7 +30,7 @@ from app.db.models import (
 from app.core.errors import NotFoundError, PermissionDeniedError
 from app.services.embedding import get_embedding_service
 from app.services.indexer import ensure_index_ready
-from app.services.llm import detect_refusal, extract_citation_refs, get_llm_service, rewrite_query
+from app.services.llm import detect_refusal, extract_citation_refs, get_llm_service
 
 
 STATUS_WEIGHT = {
@@ -36,63 +41,9 @@ STATUS_WEIGHT = {
 }
 
 
-# === 检索意图门控 ===
-# 确定性规则分类：仅在归一化后整体完全匹配短语表时判定为非知识意图，
-# 其余输入一律 knowledge（fail-safe 向检索倾斜，宁可多检索、不可漏检索）。
-_INTENT_PHRASES: dict[str, frozenset[str]] = {
-    "greeting": frozenset({
-        "你好", "您好", "你们好", "嗨", "哈喽", "在吗", "在么",
-        "早上好", "上午好", "下午好", "晚上好",
-        "hi", "hello", "hey", "good morning", "good afternoon", "good evening",
-    }),
-    "thanks": frozenset({
-        "谢谢", "谢谢你", "谢谢您", "感谢", "多谢", "辛苦了", "辛苦",
-        "thanks", "thank you", "thx",
-    }),
-    "goodbye": frozenset({
-        "再见", "拜拜", "拜", "回头见", "下次见", "晚安",
-        "bye", "bye bye", "goodbye", "good night", "see you",
-    }),
-    "meta": frozenset({
-        "你是谁", "你是什么", "你能做什么", "你会做什么", "你能干什么", "你可以做什么",
-        "你能帮我做什么", "你会什么", "你的功能", "你有什么功能", "你能做啥",
-        "怎么用你", "如何使用你", "介绍你自己", "介绍一下你自己",
-        "who are you", "what are you", "what can you do", "help",
-    }),
-}
-
-# 尾部语气词（剥离后参与匹配）。注意不含「吗」——疑问词，剥离会破坏 fail-safe。
-_TRAILING_PARTICLES = "呀啊呢吧嘛哦哈啦喽咯噢哟哇欸诶嗯"
-_TRAILING_PUNCT_RE = re.compile(r"[。！？!?.,，、…·~～;；:：\s]+$")
-_TRAILING_PARTICLE_RE = re.compile(rf"[{_TRAILING_PARTICLES}]+$")
-
-
-def _normalize_for_intent(text: str) -> str:
-    """意图匹配前归一化：小写、压缩空白、循环剥离尾部标点与语气词（「你好呀！」->「你好」）。"""
-    t = re.sub(r"\s+", " ", text.strip().lower())
-    prev = None
-    while prev != t:
-        prev = t
-        t = _TRAILING_PUNCT_RE.sub("", t)
-        t = _TRAILING_PARTICLE_RE.sub("", t)
-    return t
-
-
-def _classify_intent(question: str) -> str:
-    """返回 greeting / thanks / goodbye / meta / knowledge。混合内容必然落入 knowledge。"""
-    norm = _normalize_for_intent(question)
-    if not norm:
-        return "knowledge"  # 空问题在 ask 入口已拦截，这里兜底
-    for intent, phrases in _INTENT_PHRASES.items():
-        if norm in phrases:
-            return intent
-    return "knowledge"
-
-
 def _user_experiments(db: Session, user: User) -> list[int]:
-    """返回用户可见的 experiment id 列表（与 deps.visible_experiment_ids 同口径：
-    admin 全局可见，其余角色仅可见自己参与的实验——PI 不再全局放开）。"""
-    if user.global_role == "admin":
+    """返回用户可见的 experiment id 列表。"""
+    if user.global_role in ("admin", "pi"):
         return [e.id for e in db.query(Experiment).all()]
     rows = (
         db.query(Experiment.id)
@@ -271,38 +222,71 @@ def _build_citation(chunk: EmbeddingChunk, ref_label: str, db: Session) -> dict:
     }
 
 
-def ask(
+def ask_stream_events(
     db: Session,
     user: User,
     question: str,
-    session_id: str | None = None,
-    session_title: str | None = None,
-) -> dict:
-    """主入口：执行 RAG 问答。返回 QAAnswerOut 兼容 dict。
+    session_id: str | None,
+    session_title: str | None,
+):
+    """RAG 问答生成器：按阶段 yield (event_name, data) 元组，供 SSE 端点流式 emit。
 
-    检索阶段保持单轮无状态；LLM 生成阶段附带本会话最近 QA_HISTORY_TURNS 条历史
-    用于指代消解。每轮 Q&A（含拒答路径）持久化为 QAMessage。
+    同步端点 `ask` 是薄包装，drain 本生成器取最后 `done` 事件 data 返回；
+    逻辑零重复。事件序列：
+      session -> intent -> (rag: retrieval_started -> retrieval_completed | refused)
+              -> answer_started -> answer (| refused) -> done
 
-    意图门控：寒暄/元问题直答并照常落库，不触发任何检索阶段；
-    混合内容与拿不准的输入一律走完整检索管线（fail-safe）。
+    chat 路径跳过 retrieval_* 事件；早期拒答路径用 refused 替代 retrieval_completed。
     """
     t0 = time.time()
     question = (question or "").strip()
     if not question:
-        return _refuse(
+        result = _refuse(
             question,
             reason="empty_question",
             missing=["请输入有效问题"],
             retrieval_details={},
         )
+        yield "session", {"session_id": None, "session_title": None}
+        yield "intent", {"intent": "rag", "reason": "empty_question_skipped"}
+        yield "refused", {
+            "reason": "empty_question",
+            "missing_conditions": result["missing_conditions"],
+            "retrieval_details": result["retrieval_details"],
+        }
+        yield "done", result
+        return
 
-    # 会话解析：缺省新建，传入则校验 owner 与归档状态（直答轮也持久化）
+    # 会话解析：缺省新建，传入则校验 owner 与归档状态
     session = _resolve_session(db, user, session_id, session_title, question)
+    yield "session", {"session_id": str(session.id), "session_title": session.title}
 
-    # 步骤 0：意图门控 —— 非知识意图直接作答，跳过嵌入/召回/重排等全部检索阶段
-    intent = _classify_intent(question)
-    if intent != "knowledge":
-        return _finalize(db, session, question, _direct_answer(user, question, intent, t0))
+    # 步骤 0：意图 agent 分类（chat 跳过检索；rag 走完整管线）
+    recent_for_intent = _load_recent_history(db, session, 4)
+    llm = get_llm_service()
+    intent, intent_reason = llm.classify_intent(question, recent_for_intent)
+    yield "intent", {"intent": intent, "reason": intent_reason}
+
+    # 加载上下文窗口（摘要 + 近 N 轮历史）
+    history = _load_history(db, session)
+    summary = session.summary
+
+    # === chat 路径：跳过检索 ===
+    if intent == "chat":
+        yield "answer_started", {}
+        result = _answer_chat(db, user, question, history, summary, intent, intent_reason, llm, t0)
+        yield "answer", {
+            "text": result.get("answer", ""),
+            "refused": bool(result.get("refused")),
+            "missing_conditions": result.get("missing_conditions") or [],
+            "warning": (result.get("retrieval_scope") or {}).get("warning"),
+        }
+        result = _finalize(db, session, question, result, intent=intent)
+        yield "done", result
+        return
+
+    # === rag 路径 ===
+    yield "retrieval_started", {}
 
     # 启动时若索引为空且 DB 有可索引数据，触发一次全量重建
     try:
@@ -313,45 +297,57 @@ def ask(
     # 步骤 1：权限前置过滤
     exp_ids = _user_experiments(db, user)
     if not exp_ids:
-        return _finalize(
-            db, session, question,
-            _refuse(
-                question,
-                reason="no_permission",
-                missing=["无可见实验，请联系 PI 加入项目"],
-                retrieval_details={"permission_filtered_experiments": 0},
-            ),
+        rd = {
+            "permission_filtered_experiments": 0,
+            "intent": intent,
+            "intent_reason": intent_reason,
+        }
+        result = _refuse(
+            question,
+            reason="no_permission",
+            missing=["无可见实验，请联系 PI 加入项目"],
+            retrieval_details=rd,
         )
+        yield "refused", {
+            "reason": "no_permission",
+            "missing_conditions": result["missing_conditions"],
+            "retrieval_details": rd,
+        }
+        result = _finalize(db, session, question, result, intent=intent)
+        yield "done", result
+        return
 
     # 步骤 2：状态过滤
     candidate_ids, candidate_chunks = _candidate_chunk_ids(db, exp_ids)
     if not candidate_ids:
-        return _finalize(
-            db, session, question,
-            _refuse(
-                question,
-                reason="no_match_after_status_filter",
-                missing=["当前可见实验暂无可检索的已发布知识"],
-                retrieval_details={
-                    "permission_filtered_experiments": len(exp_ids),
-                    "status_filtered_chunks": 0,
-                },
-            ),
+        rd = {
+            "permission_filtered_experiments": len(exp_ids),
+            "status_filtered_chunks": 0,
+            "intent": intent,
+            "intent_reason": intent_reason,
+        }
+        result = _refuse(
+            question,
+            reason="no_match_after_status_filter",
+            missing=["当前可见实验暂无可检索的已发布知识"],
+            retrieval_details=rd,
         )
+        yield "refused", {
+            "reason": "no_match_after_status_filter",
+            "missing_conditions": result["missing_conditions"],
+            "retrieval_details": rd,
+        }
+        result = _finalize(db, session, question, result, intent=intent)
+        yield "done", result
+        return
     chunks_by_id = {c.chunk_id: c for c in candidate_chunks}
-
-    # 步骤 2.5：加载会话历史 + 检索查询改写（decision-qa「检索查询改写」）。
-    # 改写后的 search_query 仅用于 BM25/向量召回；原始 question 仍用于 LLM 生成与落库。
-    # 历史提前加载，步骤 8 生成阶段复用。无历史/LLM 不可用/改写异常 → 原问题（降级不 worse）。
-    history = _load_history(db, session)
-    search_query = rewrite_query(question, history)
 
     vec_avail = vec.vec_available(db)
 
     # 步骤 3：BM25 召回
     bm25_hits: list[tuple[str, float]] = []
     try:
-        bm25_hits = vec.fts_search(db, search_query, settings.RAG_RECALL_TOP, candidate_ids)
+        bm25_hits = vec.fts_search(db, question, settings.RAG_RECALL_TOP, candidate_ids)
     except Exception:
         pass
     bm25_scores = {cid: score for cid, score in bm25_hits}
@@ -359,119 +355,150 @@ def ask(
     # 步骤 4：向量召回
     vec_hits: list[tuple[str, float]] = []
     emb_service = get_embedding_service()
-    query_vec, emb_mode = emb_service.embed_query(search_query)
+    query_vec, emb_mode = emb_service.embed_query(question)
     try:
         if vec.vec_available(db):
             vec_hits = vec.vec_search(db, query_vec, settings.RAG_RECALL_TOP, candidate_ids)
     except Exception:
         pass
-    # 把 distance（越小越相似）转为相似度（越大越相似）
     vec_scores = {cid: 1.0 / (1.0 + dist) for cid, dist in vec_hits}
 
     # 步骤 5：关系扩展
     hit_ids = set(bm25_scores.keys()) | set(vec_scores.keys())
     hit_chunks = [chunks_by_id[cid] for cid in hit_ids if cid in chunks_by_id]
     extra_ids = _relation_expand(db, hit_chunks, chunks_by_id)
-    # 合并候选集
     all_candidate_ids = set(hit_ids) | set(extra_ids)
     all_candidates = [chunks_by_id[cid] for cid in all_candidate_ids if cid in chunks_by_id]
 
     # 步骤 6：重排
     ranked = _rerank(all_candidates, bm25_scores, vec_scores)
-    # 已执行检索轮次的公共 retrieval_details 基础字段（含 search_query 透明透传）
-    rd_base = {
+    if not ranked:
+        rd = {
+            "permission_filtered_experiments": len(exp_ids),
+            "status_filtered_chunks": len(candidate_ids),
+            "bm25_hits": len(bm25_hits),
+            "vector_hits": len(vec_hits),
+            "vector_available": vec_avail,
+            "after_relation_expansion": len(all_candidate_ids),
+            "after_rerank": 0,
+            "top_score": 0.0,
+            "intent": intent,
+            "intent_reason": intent_reason,
+        }
+        result = _refuse(
+            question,
+            reason="no_match_after_status_filter",
+            missing=["检索未命中任何可信证据，请补充实验编号/参数名/适用范围后重试"],
+            retrieval_details=rd,
+        )
+        yield "refused", {
+            "reason": "no_match_after_status_filter",
+            "missing_conditions": result["missing_conditions"],
+            "retrieval_details": rd,
+        }
+        result = _finalize(db, session, question, result, intent=intent)
+        yield "done", result
+        return
+
+    top_score = ranked[0][1]
+    if top_score < settings.RAG_MIN_SCORE:
+        rd = {
+            "permission_filtered_experiments": len(exp_ids),
+            "status_filtered_chunks": len(candidate_ids),
+            "bm25_hits": len(bm25_hits),
+            "vector_hits": len(vec_hits),
+            "vector_available": vec_avail,
+            "after_relation_expansion": len(all_candidate_ids),
+            "after_rerank": len(ranked),
+            "top_score": round(top_score, 4),
+            "intent": intent,
+            "intent_reason": intent_reason,
+        }
+        result = _refuse(
+            question,
+            reason="score_below_threshold",
+            missing=[
+                f"最高相似度 {top_score:.2f} 低于阈值 {settings.RAG_MIN_SCORE}",
+                "请补充更具体的实验编号、参数名或适用范围",
+            ],
+            retrieval_details=rd,
+        )
+        yield "refused", {
+            "reason": "score_below_threshold",
+            "missing_conditions": result["missing_conditions"],
+            "retrieval_details": rd,
+        }
+        result = _finalize(db, session, question, result, intent=intent)
+        yield "done", result
+        return
+
+    # 步骤 7：上下文组装
+    top_chunks = [c for c, _, _ in ranked]
+    context_chunks = []
+    for i, c in enumerate(top_chunks, 1):
+        context_chunks.append(
+            {
+                "ref": f"C{i}",
+                "type": c.chunk_type,
+                "text": c.content_text,
+                "metadata": c.metadata_json or {},
+            }
+        )
+    preliminary_citations = [
+        _build_citation(c, f"C{i}", db) for i, (c, _, _) in enumerate(ranked, 1)
+    ]
+
+    retrieval_details = {
         "permission_filtered_experiments": len(exp_ids),
         "status_filtered_chunks": len(candidate_ids),
         "bm25_hits": len(bm25_hits),
         "vector_hits": len(vec_hits),
         "vector_available": vec_avail,
         "after_relation_expansion": len(all_candidate_ids),
-        "search_query": search_query,
+        "after_rerank": len(ranked),
+        "top_score": round(top_score, 4),
+        "score_breakdown": ranked[0][2] if ranked else {},
+        "intent": intent,
+        "intent_reason": intent_reason,
+        "skipped_by_intent": False,
     }
-    if not ranked:
-        return _finalize(
-            db, session, question,
-            _refuse(
-                question,
-                reason="no_match_after_status_filter",
-                missing=["检索未命中任何可信证据，请补充实验编号/参数名/适用范围后重试"],
-                retrieval_details={
-                    **rd_base,
-                    "after_rerank": 0,
-                    "top_score": 0.0,
-                },
-            ),
-        )
 
-    top_score = ranked[0][1]
-    if top_score < settings.RAG_MIN_SCORE:
-        return _finalize(
-            db, session, question,
-            _refuse(
-                question,
-                reason="score_below_threshold",
-                missing=[
-                    f"最高相似度 {top_score:.2f} 低于阈值 {settings.RAG_MIN_SCORE}",
-                    "请补充更具体的实验编号、参数名或适用范围",
-                ],
-                retrieval_details={
-                    **rd_base,
-                    "after_rerank": len(ranked),
-                    "top_score": round(top_score, 4),
-                },
-                # 本轮已执行真实嵌入/检索，model_info 须反映实际模式（拒答轮诚实）
-                model_info={
-                    "embedding_mode": emb_mode,
-                    "embedding_model": settings.QWEN_EMBEDDING_MODEL if emb_mode != "hash-fallback" else "hash-fallback",
-                    "chat_mode": "skipped",
-                    "chat_model": "not-reached",
-                    "top_k": settings.RAG_TOP_K,
-                },
-            ),
-        )
+    yield "retrieval_completed", {
+        "retrieval_details": retrieval_details,
+        "citations": preliminary_citations,
+    }
 
-    # 步骤 7：上下文组装
-    top_chunks = [c for c, _, _ in ranked]
-    context_chunks = []
-    for i, c in enumerate(top_chunks, 1):
-        ref_label = f"C{i}"
-        context_chunks.append(
-            {
-                "ref": ref_label,
-                "type": c.chunk_type,
-                "text": c.content_text,
-                "metadata": c.metadata_json or {},
-            }
-        )
-
-    # 步骤 8：LLM 生成（多轮带历史；history 已在步骤 2.5 提前加载，此处复用）
-    llm = get_llm_service()
-    answer_text, chat_mode = llm.chat_with_history(question, context_chunks, history)
+    # 步骤 8：回答 agent 生成（多轮带历史与摘要）
+    yield "answer_started", {}
+    answer_text, chat_mode = llm.chat_with_history(question, context_chunks, history, summary)
 
     # 步骤 9：引用后处理
     is_refused, refusal_reason = detect_refusal(answer_text)
     if is_refused:
-        return _finalize(
-            db, session, question,
-            _refuse(
-                question,
-                reason="llm_refused",
-                missing=[refusal_reason or "大模型判定证据不足"],
-                retrieval_details={
-                    **rd_base,
-                    "after_rerank": len(ranked),
-                    "top_score": round(top_score, 4),
-                },
-                model_info={
-                    "embedding_mode": emb_mode,
-                    "embedding_model": settings.QWEN_EMBEDDING_MODEL if emb_mode != "hash-fallback" else "hash-fallback",
-                    "chat_mode": chat_mode,
-                    "chat_model": llm.model_name,
-                    "top_k": settings.RAG_TOP_K,
-                },
-                citations=[_build_citation(c, f"C{i}", db) for i, (c, _, _) in enumerate(ranked, 1)],
-            ),
+        result = _refuse(
+            question,
+            reason="llm_refused",
+            missing=[refusal_reason or "大模型判定证据不足"],
+            retrieval_details=retrieval_details,
+            model_info={
+                "embedding_mode": emb_mode,
+                "embedding_model": settings.QWEN_EMBEDDING_MODEL if emb_mode != "hash-fallback" else "hash-fallback",
+                "chat_mode": chat_mode,
+                "chat_model": llm.model_name,
+                "intent_model": llm.intent_model_name,
+                "top_k": settings.RAG_TOP_K,
+            },
+            citations=preliminary_citations,
         )
+        yield "answer", {
+            "text": result["answer"],
+            "refused": True,
+            "missing_conditions": result["missing_conditions"],
+            "warning": None,
+        }
+        result = _finalize(db, session, question, result, intent=intent)
+        yield "done", result
+        return
 
     # 提取 LLM 输出中的 [C1] [C2] 引用编号
     cited_refs = extract_citation_refs(answer_text)
@@ -490,44 +517,105 @@ def ask(
 
     elapsed = round(time.time() - t0, 3)
 
-    return _finalize(
-        db, session, question,
-        {
-            "question": question,
-            "answer": answer_text,
-            "citations": citations,
-            "retrieval_scope": {
-                "identity": user.display_name,
-                "searched_experiments": len(exp_ids),
-                "status_filter": ["current", "published"],
-                "matched_claims": sum(1 for c in top_chunks if c.chunk_type == "claim"),
-                "top_score": round(top_score, 4),
-                "warning": warning,
+    result = {
+        "question": question,
+        "answer": answer_text,
+        "citations": citations,
+        "retrieval_scope": {
+            "identity": user.display_name,
+            "searched_experiments": len(exp_ids),
+            "status_filter": ["current", "published"],
+            "matched_claims": sum(1 for c in top_chunks if c.chunk_type == "claim"),
+            "top_score": round(top_score, 4),
+            "warning": warning,
+        },
+        "retrieval_details": {**retrieval_details, "elapsed_sec": elapsed},
+        "model_info": {
+            "embedding_mode": emb_mode,
+            "embedding_model": settings.QWEN_EMBEDDING_MODEL if emb_mode != "hash-fallback" else "hash-fallback",
+            "chat_mode": chat_mode,
+            "chat_model": llm.model_name,
+            "intent_model": llm.intent_model_name,
+            "top_k": settings.RAG_TOP_K,
+        },
+        "missing_conditions": [],
+        "refused": False,
+    }
+    yield "answer", {
+        "text": answer_text,
+        "refused": False,
+        "missing_conditions": [],
+        "warning": warning,
+    }
+    result = _finalize(db, session, question, result, intent=intent)
+    yield "done", result
+
+
+def ask(
+    db: Session,
+    user: User,
+    question: str,
+    session_id: str | None = None,
+    session_title: str | None = None,
+) -> dict:
+    """同步端点薄包装：drain `ask_stream_events` 生成器，取最后 `done` 事件 data 返回。
+
+    逻辑零重复 —— 与 SSE 端点 `POST /api/qa/ask/stream` 共用同一生成器。
+    """
+    result = None
+    for _event_name, data in ask_stream_events(db, user, question, session_id, session_title):
+        # 生成器保证最后一定 yield "done" 事件；这里取最后一次 done data
+        result = data
+    if result is None:  # defensive：空问题路径也 yield done
+        result = _refuse(
+            question or "",
+            reason="empty_question",
+            missing=["请输入有效问题"],
+            retrieval_details={},
+        )
+    return result
+
+
+def _answer_chat(
+    db: Session,
+    user: User,
+    question: str,
+    history: list[dict],
+    summary: str | None,
+    intent: str,
+    intent_reason: str,
+    llm,
+    t0: float,
+) -> dict:
+    """意图=chat 路径：跳过检索，回答 agent 仅基于摘要 + 历史生成。
+
+    context_chunks=[]，回答中不得出现 [Cx] 引用编号，citations 恒为空。
+    permission_filtered_experiments 仍记录，便于审计该用户此刻的可见实验数。
+    """
+    answer_text, chat_mode = llm.chat_with_history(question, [], history, summary)
+    perm_count = len(_user_experiments(db, user))
+    is_refused, refusal_reason = detect_refusal(answer_text)
+    if is_refused:
+        return _refuse(
+            question,
+            reason="llm_refused",
+            missing=[refusal_reason or "上下文不足以回答该追问"],
+            retrieval_details={
+                "skipped_by_intent": True,
+                "intent": intent,
+                "intent_reason": intent_reason,
+                "permission_filtered_experiments": perm_count,
+                "elapsed_sec": round(time.time() - t0, 3),
             },
-            "retrieval_details": {
-                **rd_base,
-                "after_rerank": len(ranked),
-                "top_score": round(top_score, 4),
-                "score_breakdown": ranked[0][2] if ranked else {},
-                "elapsed_sec": elapsed,
-            },
-            "model_info": {
-                "embedding_mode": emb_mode,
-                "embedding_model": settings.QWEN_EMBEDDING_MODEL if emb_mode != "hash-fallback" else "hash-fallback",
+            model_info={
+                "embedding_mode": "skipped",
+                "embedding_model": "skipped",
                 "chat_mode": chat_mode,
                 "chat_model": llm.model_name,
-                "top_k": settings.RAG_TOP_K,
+                "intent_model": llm.intent_model_name,
+                "top_k": 0,
             },
-            "missing_conditions": [],
-            "refused": False,
-        },
-    )
-
-
-def _direct_answer(user: User, question: str, intent: str, t0: float) -> dict:
-    """寒暄/元问题直答组装：不访问任何实验数据，响应标记 retrieval_skipped。"""
-    llm = get_llm_service()
-    answer_text, chat_mode = llm.chat_direct(question, intent)
+        )
     return {
         "question": question,
         "answer": answer_text,
@@ -535,11 +623,13 @@ def _direct_answer(user: User, question: str, intent: str, t0: float) -> dict:
         "retrieval_scope": {
             "identity": user.display_name,
             "intent": intent,
-            "retrieval_skipped": True,
+            "warning": None,
         },
         "retrieval_details": {
-            "retrieval_skipped": True,
+            "skipped_by_intent": True,
             "intent": intent,
+            "intent_reason": intent_reason,
+            "permission_filtered_experiments": perm_count,
             "elapsed_sec": round(time.time() - t0, 3),
         },
         "model_info": {
@@ -547,8 +637,8 @@ def _direct_answer(user: User, question: str, intent: str, t0: float) -> dict:
             "embedding_model": "skipped",
             "chat_mode": chat_mode,
             "chat_model": llm.model_name,
+            "intent_model": llm.intent_model_name,
             "top_k": 0,
-            "intent": intent,
         },
         "missing_conditions": [],
         "refused": False,
@@ -585,18 +675,31 @@ def _resolve_session(
     return session
 
 
-def _load_history(db: Session, session: QASession) -> list[dict]:
-    """取该会话最近 QA_HISTORY_TURNS 条有效消息，按时间正序返回。
-
-    按 user/assistant 配对过滤整轮：跳过直答轮（retrieval_skipped）与空回答轮。
-    直答轮的 user 消息本身无 retrieval_details 标记，故须按对判断 assistant
-    标记后整对剔除，避免寒暄 user 残留挤占有限的历史名额。多取 2 倍补偿过滤损失。
-    """
+def _load_recent_history(db: Session, session: QASession, n: int) -> list[dict]:
+    """取该会话最近 n 条消息（不分角色），供意图 agent 轻量使用。"""
     rows = (
         db.query(QAMessage)
         .filter(QAMessage.session_id == session.id)
         .order_by(QAMessage.id.desc())
-        .limit(settings.QA_HISTORY_TURNS * 2)
+        .limit(n)
+        .all()
+    )
+    rows.reverse()
+    return [{"role": r.role, "content": (r.content or "").strip()} for r in rows if (r.content or "").strip()]
+
+
+def _load_history(db: Session, session: QASession) -> list[dict]:
+    """取该会话最近 QA_HISTORY_TURNS 轮完整 user/assistant 消息对，按时间正序返回。
+
+    一轮 = user + assistant 一对，N 轮 = 2N 条消息。孤儿消息（未配对的 user）
+    保留为单独的 user 消息，避免丢用户最近的提问。
+    """
+    fresh_msg_count = settings.QA_HISTORY_TURNS * 2
+    rows = (
+        db.query(QAMessage)
+        .filter(QAMessage.session_id == session.id)
+        .order_by(QAMessage.id.desc())
+        .limit(fresh_msg_count)
         .all()
     )
     rows.reverse()  # 时间正序
@@ -605,27 +708,74 @@ def _load_history(db: Session, session: QASession) -> list[dict]:
     while i < len(rows):
         r = rows[i]
         if r.role == "user" and i + 1 < len(rows) and rows[i + 1].role == "assistant":
-            asst = rows[i + 1]
-            rd = asst.retrieval_details_json or {}
-            if rd.get("retrieval_skipped") or not (asst.content or "").strip():
-                i += 2  # 整对跳过：直答轮 / 空回答轮
-                continue
             history.append({"role": "user", "content": (r.content or "").strip()})
-            history.append({"role": "assistant", "content": (asst.content or "").strip()})
+            history.append({"role": "assistant", "content": (rows[i + 1].content or "").strip()})
             i += 2
         else:
-            # 孤儿消息（未配对的 user 或 assistant）：仅保留非空 user
             content = (r.content or "").strip()
             if r.role == "user" and content:
                 history.append({"role": "user", "content": content})
             i += 1
-    return history[-settings.QA_HISTORY_TURNS :]
+    return history[-fresh_msg_count:]
 
 
-def _finalize(db: Session, session: QASession, question: str, result: dict) -> dict:
-    """持久化本轮 Q&A（user + assistant 两条消息）并回填 session 字段。"""
+def _maybe_summarize(db: Session, session: QASession) -> None:
+    """滚动摘要：当未折叠消息数超 QA_HISTORY_TURNS*2 + 2 时，把最旧的超出部分折叠进 summary。
+
+    对齐到 user/assistant pair：区间首条若为 assistant 从第二条起取；末条若为 user 少取最后一条。
+    摘要 agent 失败时不推进 cursor，下一轮再试。
+    """
+    fresh_keep = settings.QA_HISTORY_TURNS * 2
+    cursor = session.summary_cursor or 0
+    total = db.query(QAMessage).filter(QAMessage.session_id == session.id).count()
+    if total <= fresh_keep + 2:
+        return
+
+    to_fold_count = total - fresh_keep
+    rows = (
+        db.query(QAMessage)
+        .filter(QAMessage.session_id == session.id, QAMessage.id > cursor)
+        .order_by(QAMessage.id.asc())
+        .limit(to_fold_count)
+        .all()
+    )
+    if not rows:
+        return
+    start = 1 if rows[0].role == "assistant" else 0
+    end = len(rows) - 1 if rows[-1].role == "user" else len(rows)
+    pair_rows = rows[start:end]
+    if len(pair_rows) < 2:
+        return
+    old_messages = [
+        {"role": r.role, "content": (r.content or "").strip()} for r in pair_rows
+    ]
+    llm = get_llm_service()
+    new_summary = llm.summarize_history(session.summary, old_messages)
+    if not new_summary:
+        return
+    session.summary = new_summary[: settings.QA_SUMMARY_MAX_CHARS]
+    session.summary_cursor = pair_rows[-1].id
+    db.commit()
+
+def _finalize(
+    db: Session,
+    session: QASession,
+    question: str,
+    result: dict,
+    *,
+    intent: str | None = None,
+) -> dict:
+    """持久化本轮 Q&A（user + assistant 两条消息）并回填 session 字段。
+
+    user 消息记录 intent；持久化后触发滚动摘要压缩。
+    """
     now = datetime.now(timezone.utc)
-    user_msg = QAMessage(session_id=session.id, role="user", content=question)
+    user_msg = QAMessage(
+        session_id=session.id,
+        role="user",
+        content=question,
+        intent=intent,
+    )
     db.add(user_msg)
     db.flush()
     assistant_msg = QAMessage(
@@ -641,6 +791,11 @@ def _finalize(db: Session, session: QASession, question: str, result: dict) -> d
     db.add(assistant_msg)
     session.last_message_at = now
     db.commit()
+    # 滚动摘要：commit 后触发，单独事务，失败不影响已落库的本轮消息
+    try:
+        _maybe_summarize(db, session)
+    except Exception:
+        pass
     result["session_id"] = str(session.id)
     result["session_title"] = session.title
     result["message_id"] = assistant_msg.id

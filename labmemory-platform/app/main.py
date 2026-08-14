@@ -98,6 +98,20 @@ def _run_migrations() -> None:
                 conn.execute(text(f"ALTER TABLE tasks ADD COLUMN {col} {ddl}"))
                 logger.info("迁移：tasks 表新增列 %s", col)
 
+    # QA 会话/消息表补充摘要与意图列（enhance-qa-context-with-intent-and-summary）
+    for table, cols in (
+        ("qa_sessions", [("summary", "TEXT"), ("summary_cursor", "INTEGER")]),
+        ("qa_messages", [("intent", "VARCHAR(16)")]),
+    ):
+        if table not in insp.get_table_names():
+            continue
+        existing_cols = {c["name"] for c in insp.get_columns(table)}
+        with engine.begin() as conn:
+            for col, ddl in cols:
+                if col not in existing_cols:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
+                    logger.info("迁移：%s 表新增列 %s", table, col)
+
     # 去掉 uq_task_per_meeting 唯一约束（一键修正需为同一会议生成新任务草稿，旧任务保留为 blocked）
     with engine.connect() as conn:
         sql = conn.execute(

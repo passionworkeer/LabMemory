@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
-  apiAskQuestion,
+  apiAskQuestionStream,
   apiDeleteQASession,
   apiGetQASession,
   apiListQASessions,
   apiPatchQASession,
+  type QAStreamEvent,
 } from "../api";
 import type {
   QAAnswerOut,
@@ -16,6 +17,7 @@ import type {
 import { useAuth } from "../store";
 
 interface Msg {
+  _id: number | string;  // 唯一标识：live 消息用随机数，历史消息用 backend id
   role: "user" | "ai";
   text: string;
   citations?: QACitation[];
@@ -30,6 +32,7 @@ interface Msg {
 
 function messageToMsg(m: QAMessageOut): Msg {
   return {
+    _id: m.id,
     role: m.role === "user" ? "user" : "ai",
     text: m.content,
     citations: m.citations ?? undefined,
@@ -88,16 +91,27 @@ export default function TrustedQA() {
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
+  const [phase, setPhase] = useState<"thinking" | "retrieving">("thinking");
+  // 内容已开始流式渲染（answer 事件或拒答路径的 done 事件触发）。
+  // 一旦为 true，下方打字机指示器立即隐藏，避免 _maybe_summarize LLM 调用期间
+  // 在已完成的 AI 消息下方残留"思考中..."气泡。loading 仍保持 true 以禁用输入框。
+  const [answerStreaming, setAnswerStreaming] = useState(false);
   const [lastScope, setLastScope] = useState<QAAnswerOut | null>(null);
   const [sessions, setSessions] = useState<QASessionOut[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [summary, setSummary] = useState<string | null>(null);
+  const [summaryCursor, setSummaryCursor] = useState<number | null>(null);
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const scrollRef = useRef<HTMLDivElement>(null);
   const typingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const streamLockRef = useRef(false);
+  // ask 周期 epoch：用于忽略旧 ask 的过期 SSE 事件与 finally 状态覆盖。
+  // 当用户在新 ask 的 _maybe_summarize 期间提交下一问题时，旧 ask 的 done 事件
+  // 与 finally 不应再覆盖新 ask 的 loading/phase/answerStreaming 状态。
+  const askEpochRef = useRef(0);
 
   const refreshSessions = useCallback(async () => {
     setSessionsLoading(true);
@@ -116,6 +130,8 @@ export default function TrustedQA() {
       const detail = await apiGetQASession(id);
       setSessionId(String(detail.id));
       setMessages(detail.messages.map(messageToMsg));
+      setSummary(detail.summary ?? null);
+      setSummaryCursor(detail.summary_cursor ?? null);
       const lastAi = [...detail.messages].reverse().find((m) => m.role === "assistant");
       if (lastAi) {
         setLastScope({
@@ -165,13 +181,15 @@ export default function TrustedQA() {
     mi: QAAnswerOut["model_info"],
     mc: string[] | undefined,
     warning: string | null,
+    epoch: number,
   ) => {
-    streamLockRef.current = false;
+    // 每条 AI 消息分配唯一 id，用于 setInterval 定位消息（支持并发 ask 各自更新自己的消息）
+    const msgId = Date.now() + Math.random();
     setMessages((prev) => {
-      if (streamLockRef.current) return prev;
-      streamLockRef.current = true;
-
+      // 严格模式下 setMessages updater 会被调用两次；用 msgId 去重避免重复添加
+      if (prev.some((m) => m._id === msgId)) return prev;
       const aiMsg: Msg = {
+        _id: msgId,
         role: "ai",
         text: "",
         citations,
@@ -183,62 +201,185 @@ export default function TrustedQA() {
         streamed: true,
         ts: Date.now(),
       };
-      const next = [...prev, aiMsg];
-      const msgIdx = next.length - 1;
-
-      if (typingTimer.current) clearInterval(typingTimer.current);
-      let i = 0;
-      typingTimer.current = setInterval(() => {
-        i += 2;
-        const slice = fullText.slice(0, i);
-        setMessages((curr) => {
-          const arr = [...curr];
-          if (arr[msgIdx]) {
-            arr[msgIdx] = { ...arr[msgIdx], text: slice, streamed: i < fullText.length };
-          }
-          return arr;
-        });
-        if (i >= fullText.length && typingTimer.current) {
-          clearInterval(typingTimer.current);
-          typingTimer.current = null;
-        }
-      }, 12);
-
-      return next;
+      return [...prev, aiMsg];
     });
+
+    if (typingTimer.current) clearInterval(typingTimer.current);
+    let i = 0;
+    typingTimer.current = setInterval(() => {
+      i += 2;
+      const slice = fullText.slice(0, i);
+      setMessages((curr) => {
+        const idx = curr.findIndex((m) => m._id === msgId);
+        if (idx === -1) return curr;  // 消息已不存在（清空会话），停止更新
+        const arr = [...curr];
+        arr[idx] = { ...arr[idx], text: slice, streamed: i < fullText.length };
+        return arr;
+      });
+      if (i >= fullText.length && typingTimer.current) {
+        clearInterval(typingTimer.current);
+        typingTimer.current = null;
+        // 打字机跑完：AI 回复已完整呈现，立即启用输入框。
+        // epoch 检查避免覆盖更新的 ask 的 loading 状态。
+        if (epoch === askEpochRef.current) {
+          setLoading(false);
+        }
+      }
+    }, 12);
   };
 
   const ask = async (q?: string) => {
     const text = (q ?? question).trim();
     if (!text || loading) return;
+    const myEpoch = ++askEpochRef.current;
     setQuestion("");
-    setMessages((prev) => [...prev, { role: "user", text, ts: Date.now() }]);
+    setMessages((prev) => [
+      ...prev,
+      { _id: Date.now() + Math.random(), role: "user", text, ts: Date.now() },
+    ]);
     setLoading(true);
+    setPhase("thinking");
+    setAnswerStreaming(false);
+
+    // SSE 事件处理期间累积的中间状态；done 事件到达后构造完整 QAAnswerOut
+    let streamedAnswer: {
+      text: string;
+      refused: boolean;
+      missingConditions?: string[];
+      warning?: string | null;
+      citations: QACitation[];
+      retrievalDetails?: QAAnswerOut["retrieval_details"];
+      modelInfo?: QAAnswerOut["model_info"];
+    } | null = null;
+
     try {
-      const r: QAAnswerOut = await apiAskQuestion(text, sessionId ?? undefined);
-      setLastScope(r);
-      // 后端可能新建会话（sessionId 为空时），同步本地状态与 URL
-      if (r.session_id && r.session_id !== sessionId) {
-        setSessionId(r.session_id);
-        setSearchParams({ s: r.session_id }, { replace: true });
-      }
-      streamAnswer(
-        r.answer,
-        r.citations,
-        r.refused,
-        r.retrieval_details,
-        r.model_info,
-        r.missing_conditions,
-        (r.retrieval_scope.warning as string | null) ?? null,
-      );
-      refreshSessions();
+      await apiAskQuestionStream(text, sessionId ?? null, null, (evt: QAStreamEvent) => {
+        // 旧 ask 的过期事件：忽略，避免覆盖新 ask 的状态
+        if (myEpoch !== askEpochRef.current) return;
+        switch (evt.name) {
+          case "session": {
+            const sid = evt.data.session_id;
+            if (sid && sid !== sessionId) {
+              setSessionId(sid);
+              setSearchParams({ s: sid }, { replace: true });
+            }
+            break;
+          }
+          case "intent":
+            // rag → 切换"检索中..."；chat → 保持"思考中..."
+            setPhase(evt.data.intent === "rag" ? "retrieving" : "thinking");
+            break;
+          case "retrieval_started":
+            setPhase("retrieving");
+            break;
+          case "retrieval_completed":
+            // 检索完成，进入回答 LLM 阶段
+            setPhase("thinking");
+            streamedAnswer = {
+              text: "",
+              refused: false,
+              citations: evt.data.citations ?? [],
+              retrievalDetails: evt.data.retrieval_details as
+                | QAAnswerOut["retrieval_details"]
+                | undefined,
+            };
+            break;
+          case "answer_started":
+            setPhase("thinking");
+            break;
+          case "answer":
+            if (streamedAnswer) {
+              streamedAnswer.text = evt.data.text;
+              streamedAnswer.refused = evt.data.refused;
+              streamedAnswer.missingConditions = evt.data.missing_conditions;
+              streamedAnswer.warning = evt.data.warning ?? null;
+            } else {
+              // chat 路径无 retrieval_completed，先初始化
+              streamedAnswer = {
+                text: evt.data.text,
+                refused: evt.data.refused,
+                missingConditions: evt.data.missing_conditions,
+                warning: evt.data.warning ?? null,
+                citations: [],
+              };
+            }
+            // 内容开始流式：立即隐藏下方打字机指示器，避免 _maybe_summarize
+            // LLM 调用期间在已完成的 AI 消息下方残留"思考中..."气泡
+            setAnswerStreaming(true);
+            // 启动打字机渲染（done 事件到达后再补全 session_id/message_id）
+            streamAnswer(
+              evt.data.text,
+              streamedAnswer.citations,
+              evt.data.refused,
+              streamedAnswer.retrievalDetails,
+              undefined,
+              evt.data.missing_conditions,
+              evt.data.warning ?? null,
+              myEpoch,
+            );
+            break;
+          case "refused":
+            // rag 早期拒答（检索阶段），无 answer 事件
+            streamedAnswer = {
+              text: "",
+              refused: true,
+              missingConditions: evt.data.missing_conditions,
+              citations: [],
+              retrievalDetails: evt.data.retrieval_details as
+                | QAAnswerOut["retrieval_details"]
+                | undefined,
+            };
+            break;
+          case "done": {
+            // done.data 是完整 QAAnswerOut；以此为最终权威
+            const r = evt.data as QAAnswerOut;
+            setLastScope(r);
+            if (r.session_id && r.session_id !== sessionId) {
+              setSessionId(r.session_id);
+              setSearchParams({ s: r.session_id }, { replace: true });
+            }
+            // 若已 streamAnswer 过（answer 事件触发），用 done 的权威字段补全
+            // lastScope；否则（早期拒答）现在才渲染
+            if (!streamedAnswer || !streamedAnswer.text) {
+              setAnswerStreaming(true);
+              streamAnswer(
+                r.answer,
+                r.citations,
+                r.refused,
+                r.retrieval_details,
+                r.model_info,
+                r.missing_conditions,
+                (r.retrieval_scope.warning as string | null) ?? null,
+                myEpoch,
+              );
+            } else {
+              // 已渲染：仅刷新 lastScope 中的 model_info 等字段（在 streamAnswer 时未填）
+              setLastScope(r);
+            }
+            refreshSessions();
+            break;
+          }
+        }
+      });
     } catch (e) {
+      if (myEpoch !== askEpochRef.current) return;
       setMessages((prev) => [
         ...prev,
-        { role: "ai", text: `查询失败：${(e as Error).message}`, refused: true, ts: Date.now() },
+        {
+          _id: Date.now() + Math.random(),
+          role: "ai",
+          text: `查询失败：${(e as Error).message}`,
+          refused: true,
+          ts: Date.now(),
+        },
       ]);
     } finally {
-      setLoading(false);
+      // 仅当本 ask 仍是最新时才重置状态；否则新 ask 已接管，旧 ask 不应覆盖
+      if (myEpoch === askEpochRef.current) {
+        setLoading(false);
+        setPhase("thinking");
+        setAnswerStreaming(false);
+      }
     }
   };
 
@@ -250,6 +391,8 @@ export default function TrustedQA() {
     setSessionId(null);
     setMessages([]);
     setLastScope(null);
+    setSummary(null);
+    setSummaryCursor(null);
     setSearchParams({}, { replace: true });
   };
 
@@ -499,11 +642,43 @@ export default function TrustedQA() {
               </div>
             )}
 
-            {messages.map((m, i) => (
-              <MessageBubble key={i} m={m} navigate={navigate} />
+            {summary && (
+              <div
+                style={{
+                  margin: "0 0 14px",
+                  padding: "10px 14px",
+                  background: "var(--bg)",
+                  border: "1px dashed var(--line)",
+                  borderRadius: 10,
+                  fontSize: 12.5,
+                  color: "var(--muted)",
+                }}
+              >
+                <div
+                  className="flex items-center justify-between"
+                  style={{ marginBottom: summaryExpanded ? 6 : 0 }}
+                  onClick={() => setSummaryExpanded((v) => !v)}
+                >
+                  <span style={{ fontWeight: 600, color: "var(--text)" }}>
+                    📜 已折叠早期对话（至第 {summaryCursor ?? 0} 条消息）
+                  </span>
+                  <span style={{ fontSize: 11, cursor: "pointer" }}>
+                    {summaryExpanded ? "收起" : "展开摘要"}
+                  </span>
+                </div>
+                {summaryExpanded && (
+                  <div style={{ marginTop: 6, lineHeight: 1.65, color: "var(--text)" }}>
+                    {summary}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {messages.map((m) => (
+              <MessageBubble key={m._id} m={m} navigate={navigate} />
             ))}
 
-            {loading && (
+            {loading && !answerStreaming && (
               <div
                 className="flex items-start gap-2.5"
                 style={{ margin: "14px 0" }}
@@ -525,7 +700,7 @@ export default function TrustedQA() {
                   <span className="typing-dot" style={{ animationDelay: "150ms" }} />
                   <span className="typing-dot" style={{ animationDelay: "300ms" }} />
                   <span style={{ fontSize: 12.5, color: "var(--muted)", marginLeft: 4 }}>
-                    思考中...
+                    {phase === "retrieving" ? "检索中..." : "思考中..."}
                   </span>
                 </div>
               </div>
@@ -992,6 +1167,7 @@ function MessageBubble({
               color: "var(--muted)",
               marginTop: 4,
               marginRight: 4,
+              textAlign: "right",
             }}
           >
             {time}
