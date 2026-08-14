@@ -16,7 +16,20 @@ import httpx
 
 
 BASE_URL = "http://127.0.0.1:8081"
-PLATFORM_API_KEY = "dev-platform-api-key-please-rotate"
+
+
+def _platform_api_key() -> str:
+    """与被测服务同源取密钥：优先 app.config.settings（读 .env / 环境变量），
+    兜底 dev 默认值——生产环境已轮换密钥后硬编码默认值会被 403 拒绝。"""
+    try:
+        from app.config import settings
+
+        return settings.PLATFORM_API_KEY
+    except Exception:
+        return "dev-platform-api-key-please-rotate"
+
+
+PLATFORM_API_KEY = _platform_api_key()
 
 
 def _now_iso() -> str:

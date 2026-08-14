@@ -6,6 +6,9 @@ import sys
 from pathlib import Path
 
 # 测试专用环境变量（必须在 app.* 任何 import 之前设置）
+# APP_ENV 钉在 development：测试套件注入的是 dev 默认密钥，若放行 .env 的
+# APP_ENV=production 会触发 Settings 默认密钥硬校验导致整个套件崩掉
+os.environ.setdefault("APP_ENV", "development")
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("PLATFORM_API_KEY", "dev-platform-api-key-please-rotate")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-please-rotate-32chars-min")
