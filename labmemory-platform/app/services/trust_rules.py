@@ -97,7 +97,16 @@ def run_six_gates(
         failed.append(("scope", "范围门：材料/浓度/设备/批次等边界不明确"))
 
     # 5) 状态门（语义栅栏，PRD line 854）
-    text_blob = " ".join(filter(None, [candidate.get("title", ""), candidate.get("description", "")]))
+    # 扫描候选原文与复核修改值的合并文本：modifications.title/description 与参数值
+    # 都可能携带「可以试试/暂定」等模糊表述，仅扫候选原文可被复核修改绕过
+    mod_blob = " ".join(filter(None, [
+        (modifications or {}).get("title") or "",
+        (modifications or {}).get("description") or "",
+        " ".join(str(p.get("value", "")) for p in (params or []) if p.get("value") is not None),
+    ]))
+    text_blob = " ".join(filter(None, [
+        candidate.get("title", ""), candidate.get("description", ""), mod_blob,
+    ]))
     hedge_hit = [kw for kw in SEMANTIC_HEDGE_KEYWORDS if kw in text_blob]
     gates["status"] = {"status": "passed" if not hedge_hit else "needs_review", "hedge_keywords": hedge_hit}
     if hedge_hit:

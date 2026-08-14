@@ -41,37 +41,40 @@ def run_audit(task_id: str, db: Session = Depends(get_db), user: User = Depends(
     if t.status not in ("draft", "audited", "needs_confirmation", "blocked"):
         raise StateTransitionError(f"任务状态 {t.status} 不可审计")
 
-    audit = db.query(ActionAudit).filter(ActionAudit.task_id == t.id).first()
-    if audit is None:
-        audit = ActionAudit(task_id=t.id, status="pending")
-        db.add(audit)
-        db.flush()
+    # 写锁串行化：防并发审计对同一任务重复插入审计记录（uq_audit_per_task）
+    from app.db.locking import lock_experiment_for_write
+    with lock_experiment_for_write(db, exp.id):
+        audit = db.query(ActionAudit).filter(ActionAudit.task_id == t.id).first()
+        if audit is None:
+            audit = ActionAudit(task_id=t.id, status="pending")
+            db.add(audit)
+            db.flush()
 
-    checks = _run_checks(t, exp, db)
-    audit.status = checks["overall"]
-    audit.auditor_id = user.id
-    audit.audited_at = datetime.now(timezone.utc)
-    audit.checks = checks["items"]
-    audit.result = {
-        "overall": checks["overall"],
-        "reasons": checks["reasons"],
-        "confirmations": checks["confirmations"],
-    }
+        checks = _run_checks(t, exp, db)
+        audit.status = checks["overall"]
+        audit.auditor_id = user.id
+        audit.audited_at = datetime.now(timezone.utc)
+        audit.checks = checks["items"]
+        audit.result = {
+            "overall": checks["overall"],
+            "reasons": checks["reasons"],
+            "confirmations": checks["confirmations"],
+        }
 
-    # 任务状态随审计结论流转
-    if audit.status == "passed":
-        t.status = "audited"
-    elif audit.status == "blocked":
-        t.status = "blocked"
-    else:  # needs_confirmation
-        t.status = "needs_confirmation"
+        # 任务状态随审计结论流转
+        if audit.status == "passed":
+            t.status = "audited"
+        elif audit.status == "blocked":
+            t.status = "blocked"
+        else:  # needs_confirmation
+            t.status = "needs_confirmation"
 
-    db.add(AuditEvent(
-        actor_id=user.id, action=f"task.audit.{audit.status}",
-        target_type="task", target_id=t.task_id,
-        after=audit.result, reason="; ".join(checks["reasons"] + checks["confirmations"]),
-    ))
-    db.commit()
+        db.add(AuditEvent(
+            actor_id=user.id, action=f"task.audit.{audit.status}",
+            target_type="task", target_id=t.task_id,
+            after=audit.result, reason="; ".join(checks["reasons"] + checks["confirmations"]),
+        ))
+        db.commit()
     db.refresh(audit)
     if audit.status == "blocked":
         _request_audit_blocked_notify(db, t, user, checks)
@@ -202,6 +205,22 @@ def start_task(task_id: str, payload: TaskStartIn, db: Session = Depends(get_db)
         raise StateTransitionError("审计未通过，不能启动任务")
     if t.status != "audited":
         raise StateTransitionError(f"任务状态 {t.status} 不可启动（仅 audited 可启动；running 不可重复启动）")
+    # 版本时效复查（trust-rules：审计结论只在审计那一刻有效）：审计通过后主张可能被
+    # 替代（superseded）或被实验证据推翻（refuted/replaced/insufficient_evidence），
+    # 启动前绑定主张必须仍是 current 且知识状态未失效
+    task_claim = db.get(Claim, t.claim_id) if t.claim_id else None
+    if task_claim is None or task_claim.status != "current":
+        t.status = "needs_confirmation"
+        db.commit()
+        raise StateTransitionError(
+            "任务绑定的主张已不是当前有效版本，请重新审计，或经 /audit/fix 一键修正为当前版本"
+        )
+    if task_claim.knowledge_status in ("refuted", "replaced", "insufficient_evidence"):
+        t.status = "needs_confirmation"
+        db.commit()
+        raise StateTransitionError(
+            f"任务绑定的主张知识状态为 {task_claim.knowledge_status}（已被实验证据推翻或证据不足），不可启动执行"
+        )
     t.status = "running"
     if payload.assignee_username:
         assignee = db.query(User).filter(User.username == payload.assignee_username).first()
@@ -294,46 +313,49 @@ def audit_fix(task_id: str, db: Session = Depends(get_db), user: User = Depends(
     ensure_experiment_member(db, exp.id, user)
     if t.status in ("running", "completed"):
         raise StateTransitionError(f"任务已进入执行（{t.status}），参数版本变更不影响进行中的任务，不可一键修正")
-    current_claim = (
-        db.query(Claim)
-        .filter(Claim.experiment_id == exp.id, Claim.status == "current")
-        .order_by(Claim.created_at.desc())
-        .first()
-    )
-    if current_claim is None:
-        raise StateTransitionError("实验当前无有效主张，无法修正")
-    if t.claim_id == current_claim.id:
-        raise StateTransitionError("任务已绑定当前主张，无需修正")
-    # 重复修正守卫：同一会议已有一键修正生成的新任务则不重复
-    existing_fix = db.query(Task).filter(
-        Task.meeting_id == t.meeting_id,
-        Task.claim_id == current_claim.id,
-        Task.status != "blocked",
-    ).first()
-    if existing_fix:
-        raise StateTransitionError(f"该任务已一键修正为新任务 {existing_fix.task_id}，无需重复修正")
-    # 旧任务标记 blocked（保留历史）
-    t.status = "blocked"
-    # 新任务：同一会议，但绑定当前主张
-    new_task = Task(
-        task_id=new_id("T"),
-        meeting_id=t.meeting_id,
-        experiment_id=exp.id,
-        claim_id=current_claim.id,
-        status="draft",
-        planned_params=current_claim.parameter_version,
-        assignee_id=user.id,
-    )
-    db.add(new_task)
-    db.flush()
-    db.add(AuditEvent(
-        actor_id=user.id, action="task.audit.fix",
-        target_type="task", target_id=new_task.task_id,
-        before={"old_task_id": t.task_id, "old_claim_id": t.claim_id},
-        after={"new_claim_id": current_claim.id},
-        reason="一键修正为当前参数版本",
-    ))
-    db.commit()
+    # 写锁串行化：防并发一键修正重复创建修正任务
+    from app.db.locking import lock_experiment_for_write
+    with lock_experiment_for_write(db, exp.id):
+        current_claim = (
+            db.query(Claim)
+            .filter(Claim.experiment_id == exp.id, Claim.status == "current")
+            .order_by(Claim.created_at.desc(), Claim.id.desc())
+            .first()
+        )
+        if current_claim is None:
+            raise StateTransitionError("实验当前无有效主张，无法修正")
+        if t.claim_id == current_claim.id:
+            raise StateTransitionError("任务已绑定当前主张，无需修正")
+        # 重复修正守卫：同一会议已有一键修正生成的新任务则不重复
+        existing_fix = db.query(Task).filter(
+            Task.meeting_id == t.meeting_id,
+            Task.claim_id == current_claim.id,
+            Task.status != "blocked",
+        ).first()
+        if existing_fix:
+            raise StateTransitionError(f"该任务已一键修正为新任务 {existing_fix.task_id}，无需重复修正")
+        # 旧任务标记 blocked（保留历史）
+        t.status = "blocked"
+        # 新任务：同一会议，但绑定当前主张
+        new_task = Task(
+            task_id=new_id("T"),
+            meeting_id=t.meeting_id,
+            experiment_id=exp.id,
+            claim_id=current_claim.id,
+            status="draft",
+            planned_params=current_claim.parameter_version,
+            assignee_id=user.id,
+        )
+        db.add(new_task)
+        db.flush()
+        db.add(AuditEvent(
+            actor_id=user.id, action="task.audit.fix",
+            target_type="task", target_id=new_task.task_id,
+            before={"old_task_id": t.task_id, "old_claim_id": t.claim_id},
+            after={"new_claim_id": current_claim.id},
+            reason="一键修正为当前参数版本",
+        ))
+        db.commit()
     db.refresh(new_task)
     return _task_out(new_task, _meeting_id(db, new_task), exp.experiment_id)
 
@@ -402,40 +424,47 @@ def _run_checks(t: Task, exp: Experiment, db: Session) -> dict:
     reasons: list[str] = []          # blocked 原因
     confirmations: list[str] = []    # needs_confirmation 原因
 
-    # 1) 版本与单位：任务引用的 claim 必须是实验当前 current 主张
+    # 1) 版本与单位：任务引用的 claim 必须仍是 current（per-scope 多 current 并存模型下，
+    # 不与「最新一条 current」比 id，而是校验任务主张自身生命周期状态与知识状态）
     from app.db.models import Claim
     task_claim = db.get(Claim, t.claim_id) if t.claim_id else None
-    current_claim = (
-        db.query(Claim)
-        .filter(Claim.experiment_id == exp.id, Claim.status == "current")
-        .order_by(Claim.created_at.desc())
-        .first()
-    )
     if task_claim is None:
         items["version_unit"] = {"status": "blocked", "reason": "任务未绑定主张"}
         reasons.append("版本门：任务未绑定主张")
-    elif current_claim is None:
-        items["version_unit"] = {"status": "blocked", "reason": "实验当前无有效（current）主张"}
-        reasons.append("版本门：实验当前无 current 主张")
-    elif task_claim.id != current_claim.id:
+    elif task_claim.status != "current":
+        current_refs = [
+            c.claim_id for c in
+            db.query(Claim).filter(Claim.experiment_id == exp.id, Claim.status == "current").all()
+        ]
         items["version_unit"] = {
             "status": "blocked",
-            "reason": f"任务引用 {task_claim.claim_id}({task_claim.status})；当前有效为 {current_claim.claim_id}",
+            "reason": f"任务引用 {task_claim.claim_id}({task_claim.status})；当前有效：{'、'.join(current_refs) or '无'}",
             "old_claim_id": task_claim.claim_id,
-            "current_claim_id": current_claim.claim_id,
+            "current_claim_ids": current_refs,
         }
-        reasons.append(f"版本门：旧版本 {task_claim.claim_id} 已被 {current_claim.claim_id} 替代")
+        reasons.append(f"版本门：旧版本 {task_claim.claim_id} 已被替代")
+    elif task_claim.knowledge_status in ("refuted", "replaced", "insufficient_evidence"):
+        items["version_unit"] = {
+            "status": "needs_confirmation",
+            "reason": f"主张 {task_claim.claim_id} 知识状态为 {task_claim.knowledge_status}（被实验证据推翻或证据不足）",
+            "claim_id": task_claim.claim_id,
+            "knowledge_status": task_claim.knowledge_status,
+        }
+        confirmations.append(
+            f"版本门：主张 {task_claim.claim_id} 的知识状态为 {task_claim.knowledge_status}，请确认是否继续执行"
+        )
     else:
         pv = t.planned_params or {}
         version = pv.get("version")
         items["version_unit"] = {"status": "passed", "version": version, "claim_id": task_claim.claim_id if task_claim else None}
 
-    # 2) 证据与范围：参数是否有 evidence 与 scope
+    # 2) 证据与范围：参数版本必须同时具备 scope 与 parameters（AND 语义，缺一即阻断）
     pv = t.planned_params or {}
-    evidence_ok = bool(pv.get("scope") or pv.get("parameters"))
+    evidence_ok = bool(pv.get("scope")) and bool(pv.get("parameters"))
     if not evidence_ok:
-        items["evidence_scope"] = {"status": "blocked", "reason": "缺少 scope 或 parameters"}
-        reasons.append("证据/范围门：缺少 scope 或 parameters")
+        missing = [k for k in ("scope", "parameters") if not pv.get(k)]
+        items["evidence_scope"] = {"status": "blocked", "reason": f"缺少 {' / '.join(missing)}"}
+        reasons.append(f"证据/范围门：计划参数版本缺少 {' / '.join(missing)}")
     else:
         items["evidence_scope"] = {"status": "passed", "reason": None}
 

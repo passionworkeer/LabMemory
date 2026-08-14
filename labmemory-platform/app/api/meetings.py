@@ -182,40 +182,41 @@ def confirm_review(
     user: User = Depends(require_member),
 ):
     m, r = _get_meeting_review(db, meeting_id)
-    if r.status != "pending":
-        raise StateTransitionError(f"复核已处理：{r.decision}")
     # 校验是该实验成员
     exp = db.get(Experiment, m.experiment_id)
     from app.api.deps import ensure_experiment_member
     ensure_experiment_member(db, exp.id, user)
 
-    r.status = "processed"
-    r.decision = payload.decision
-    r.reviewer_id = user.id
-    r.reviewed_at = datetime.now(timezone.utc)
-    r.modifications = payload.modifications
-    r.notes = payload.notes
-
-    if payload.decision == "ended":
-        db.add(AuditEvent(
-            actor_id=user.id, action="review.ended",
-            target_type="meeting", target_id=m.meeting_id,
-            after={"notes": payload.notes}, reason=payload.notes or "",
-        ))
-        db.commit()
-        return _chain_item(db, m, r)
-
-    # confirmed：六道闸门 + 冲突检测（PRD §10.1/10.5）决定发布状态
+    # confirmed：六道闸门 + 冲突检测（PRD §10.1/10.5）决定发布状态（纯计算，锁外执行）
     from app.services.trust_rules import pick_candidate, run_six_gates, detect_conflicts
     cand = db.query(Candidate).filter(Candidate.meeting_id == m.id).first()
     chosen = pick_candidate(cand)
     gate = run_six_gates(chosen, payload.modifications, exp, user)
     new_params = (payload.modifications or {}).get("parameters") or (chosen or {}).get("parameters") or []
     new_scope = (payload.modifications or {}).get("scope") or (chosen or {}).get("scope")
-    # 并发串行化：supersede 临界区（读旧 current → 置 superseded → 写新 current → commit）按实验加锁，
-    # 防止并发 confirm 各自基于陈旧读取创建多条 current（trust-rules「并发发布串行化」）
+    # 并发串行化：复核状态检查与变更完整位于实验写锁临界区（与 card_callback approve 对齐），
+    # 并发确认同一 review 时第二个请求在锁内发现非 pending 并拒绝，不产生重复 Claim/Task
     from app.db.locking import lock_experiment_for_write
     with lock_experiment_for_write(db, exp.id):
+        if r.status != "pending":
+            raise StateTransitionError(f"复核已处理：{r.decision}")
+
+        r.status = "processed"
+        r.decision = payload.decision
+        r.reviewer_id = user.id
+        r.reviewed_at = datetime.now(timezone.utc)
+        r.modifications = payload.modifications
+        r.notes = payload.notes
+
+        if payload.decision == "ended":
+            db.add(AuditEvent(
+                actor_id=user.id, action="review.ended",
+                target_type="meeting", target_id=m.meeting_id,
+                after={"notes": payload.notes}, reason=payload.notes or "",
+            ))
+            db.commit()
+            return _chain_item(db, m, r)
+
         conflicts = detect_conflicts(db, exp.id, new_params, new_scope, user)
         blocked_by_conflict = any(c.get("severity") == "high" for c in conflicts)
         publish_status = "pending_supplement" if blocked_by_conflict else gate["publish_status"]
@@ -246,14 +247,18 @@ def confirm_review(
         ))
         db.commit()
 
-    # 索引新生成的 Claim 与会议证据片段，供可信问答检索
+    # 索引新生成的 Claim 与会议证据片段，供可信问答检索（失败不阻断业务，但必须留痕）
     try:
         from app.services.indexer import index_claim, index_meeting
         index_claim(db, claim)
         index_meeting(db, m)
         db.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "检索索引更新失败（业务已提交，问答可见性可能滞后，可经 admin 重建索引恢复）: %s", e
+        )
+        db.rollback()
 
     return _chain_item(db, m, r)
 
@@ -335,7 +340,9 @@ def _build_claim(
         content = {"title": meeting.title, "description": None, "type": None, "evidence": []}
         params = []
 
-    # 复核修改：可覆盖 parameters / conditions / scope 等
+    # 复核修改：可覆盖 parameters / conditions / scope 等；候选自带 scope 作为缺省值贯通落库
+    if chosen and chosen.get("scope"):
+        content["scope"] = chosen["scope"]
     if modifications:
         if "parameters" in modifications:
             params = modifications["parameters"]
@@ -346,29 +353,47 @@ def _build_claim(
         if "title" in modifications:
             content["title"] = modifications["title"]
 
-    # 参数版本：按参数维度跟踪（PRD §10.3）——仅当发布为 current 时 supersede 旧主张并对比同名参数
+    # 参数版本：按参数维度跟踪（PRD §10.3）——仅当发布为 current 时 supersede 旧主张并对比同名参数。
+    # supersede 按 scope 等价匹配（trust-rules：同适用范围同参数仅一个生效版本，不同 scope 的 current 并存）
+    from app.services.trust_rules import _scope_eq, _value_key
+
     replaces_id = None
     old_param_versions: dict = {}
     if publish_status == "current":
-        old_active = (
+        new_scope = (modifications or {}).get("scope") or content.get("scope")
+        old_actives = (
             db.query(Claim)
             .filter(Claim.experiment_id == experiment.id, Claim.status == "current")
-            .order_by(Claim.created_at.desc())
-            .first()
+            .order_by(Claim.created_at.desc(), Claim.id.desc())
+            .all()
         )
-        if old_active is not None:
-            old_active.status = "superseded"
-            replaces_id = old_active.id
-            for p in ((old_active.parameter_version or {}).get("parameters") or []):
-                old_param_versions[p.get("name")] = {"value": p.get("value"), "version": p.get("version", "v1")}
+        matched = [
+            c for c in old_actives
+            if _scope_eq((c.parameter_version or {}).get("scope"), new_scope)
+        ]
+        if matched:
+            newest = matched[0]
+            replaces_id = newest.id
+            for old in matched:
+                old.status = "superseded"
+                for p in ((old.parameter_version or {}).get("parameters") or []):
+                    old_param_versions[p.get("name")] = {"value": p.get("value"), "version": p.get("version", "v1")}
+            # 检索切片同步降级（与主张生命周期一致，问答不再召回被替代版本）
+            try:
+                from app.services.indexer import mark_claim_superseded
+                for old in matched:
+                    mark_claim_superseded(db, old.claim_id)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning("旧主张检索切片降级失败（不影响业务提交）: %s", e)
 
-    # 每个参数独立版本：值相同继承（不升版），变化/新增升版
+    # 每个参数独立版本：值相同继承（不升版），变化/新增升版（数值归一化与冲突检测同口径：70==70.0=="70"）
     versioned_params = []
     max_v = 1
     for p in params:
         name, new_val = p.get("name"), p.get("value")
         old = old_param_versions.get(name)
-        if old is not None and str(old.get("value")) == str(new_val):
+        if old is not None and _value_key(old.get("value")) == _value_key(new_val):
             v = old.get("version", "v1")  # 继承
         elif old is not None:
             try:
@@ -387,7 +412,7 @@ def _build_claim(
         "parameters": versioned_params,
         "version": f"v{max_v}",  # 顶层取最大，向后兼容
         "effective_at": datetime.now(timezone.utc).isoformat(),
-        "scope": (modifications or {}).get("scope") or (content.get("scope") if modifications else None),
+        "scope": (modifications or {}).get("scope") or content.get("scope"),
     }
 
     return Claim(

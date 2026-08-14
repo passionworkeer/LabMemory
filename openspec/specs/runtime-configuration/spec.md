@@ -16,3 +16,14 @@ TBD - created by archiving change add-runtime-dependency-setup. Update Purpose a
 #### Scenario: Windows 控制台输出中文日志
 - **WHEN** 编排器在可重新配置输出流的 Windows 控制台中输出中文日志
 - **THEN** 日志写入 SHALL 不因控制台默认编码而抛出 `UnicodeEncodeError`
+
+### Requirement: 生产环境关闭交互式 API 文档
+
+`APP_ENV=production` 时，系统 MUST NOT 注册 `/docs`、`/redoc`、`/openapi.json` 交互式文档路由；其他环境保持可用以便开发调试。
+
+#### Scenario: 生产环境访问文档 404
+
+- GIVEN APP_ENV=production
+- WHEN 访问 GET /docs
+- THEN 响应 SHALL 为 404
+

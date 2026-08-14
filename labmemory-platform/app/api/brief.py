@@ -19,7 +19,7 @@ def get_brief(experiment_id: str, db: Session = Depends(get_db), user: User = De
     exp = db.query(Experiment).filter(Experiment.experiment_id == experiment_id).first()
     if exp is None:
         raise NotFoundError(f"实验不存在：{experiment_id}")
-    if user.global_role not in ("admin", "pi"):
+    if user.global_role != "admin":
         ensure_experiment_member(db, exp.id, user)
 
     # 当前主张

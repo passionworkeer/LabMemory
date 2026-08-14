@@ -277,6 +277,8 @@ export interface QARetrievalDetails {
   top_score?: number;
   score_breakdown?: Record<string, number>;
   elapsed_sec?: number;
+  /** 实际用于 BM25/向量召回的查询（经查询改写可能与原始问题不同） */
+  search_query?: string;
   /** 意图门控命中时为 true：本轮直答，未执行任何检索阶段 */
   retrieval_skipped?: boolean;
   /** 门控识别的意图：greeting / thanks / goodbye / meta */

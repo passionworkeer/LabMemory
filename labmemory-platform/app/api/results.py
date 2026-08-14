@@ -40,13 +40,18 @@ def submit_result(
     if existing:
         raise StateTransitionError(f"任务已提交过结果：{existing.result_id}（每个任务仅可提交一次）")
 
-    # 冻结判定（结果版本校验）：实际参数必须覆盖全部计划参数名且非空，否则视为
-    # 参数不匹配→冻结；实际包含计划外的额外 key 不触发冻结（额外观测不算版本不匹配）
+    # 冻结判定（结果版本校验）：实际参数必须覆盖全部计划参数名且值非空
+    # （null/空串/纯空白 = 未如实记录，同样视为参数不匹配→冻结）；
+    # 实际包含计划外的额外 key 不触发冻结（额外观测不算版本不匹配）
     planned = t.planned_params or {}
     planned_keys = {(p.get("name") if isinstance(p, dict) else None) for p in planned.get("parameters", [])} - {None}
     actual = payload.actual_params or {}
-    actual_keys = set(actual.keys())
-    frozen = bool(planned_keys) and not planned_keys.issubset(actual_keys)
+
+    def _filled(name: str) -> bool:
+        v = actual.get(name)
+        return v is not None and str(v).strip() != ""
+
+    frozen = bool(planned_keys) and not all(_filled(k) for k in planned_keys)
     status = "frozen" if frozen else "submitted"
 
     res = Result(
@@ -145,7 +150,7 @@ def publish_result(
     db.commit()
     db.refresh(res)
 
-    # 索引新发布的结果与失败边界，供可信问答检索
+    # 索引新发布的结果与失败边界，供可信问答检索（失败不阻断业务，但必须留痕）
     try:
         from app.services.indexer import index_failure_boundary, index_result
         index_result(db, res)
@@ -158,8 +163,12 @@ def publish_result(
                 from app.services.indexer import index_claim
                 index_claim(db, claim)
         db.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(
+            "结果发布后检索索引更新失败（业务已提交，可经 admin 重建索引恢复）: %s", e
+        )
+        db.rollback()
 
     _request_publish_doc(db, t, res)
     return _result_out(res, t.task_id if t else "", t.planned_params if t else None)

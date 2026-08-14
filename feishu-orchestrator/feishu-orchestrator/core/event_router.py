@@ -44,9 +44,10 @@ class EventRouter:
         )
 
         try:
-            # 幂等检查
+            # 幂等检查 + 原子抢占处理权：并发/重试到达时只执行一次
+            # （占位文件存在 = 已处理或处理中，统一按重复跳过）
             idempotency_key = f"event:{event_id}"
-            if event_id and idempotency_guard.is_processed(idempotency_key):
+            if not idempotency_guard.acquire(idempotency_key):
                 integration_log.log(
                     direction="inbound",
                     interface=f"event.{event_type}",
@@ -66,6 +67,8 @@ class EventRouter:
                         break
 
             if not handler:
+                # 未注册类型不执行副作用：释放占位，避免占位残留吞掉后续同类事件
+                idempotency_guard.release(idempotency_key)
                 result = {"status": "ignored", "message": f"未注册的事件类型: {event_type}"}
                 integration_log.log(
                     direction="inbound",
@@ -76,12 +79,15 @@ class EventRouter:
                 )
                 return result
 
-            # 执行处理
-            result = handler(event)
+            # 执行处理（处理器失败时释放占位，允许平台重试）
+            try:
+                result = handler(event)
+            except Exception:
+                idempotency_guard.release(idempotency_key)
+                raise
 
             # 标记幂等
-            if event_id:
-                idempotency_guard.mark(idempotency_key, {"result": "processed"})
+            idempotency_guard.mark(idempotency_key, {"result": "processed"})
 
             integration_log.log(
                 direction="inbound",

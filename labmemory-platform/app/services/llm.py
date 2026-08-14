@@ -40,6 +40,16 @@ SMALLTALK_SYSTEM_PROMPT = """你是 LabMemory 晶研智流平台的可信知识�
 """
 
 
+REWRITE_SYSTEM_PROMPT = """你是 LabMemory 可信问答的检索查询改写器。基于会话历史，把用户的指代性追问改写为一个自包含的独立检索查询。
+
+强制规则：
+1. 补全指代实体（实验编号、参数名、材料等隐含属性），使查询脱离历史也可理解。
+2. 保留原始问题的意图；禁止引入历史中未提及的新实体，禁止提出新问题。
+3. 只输出改写后的查询本身，不要任何解释、引号、编号或前后缀。
+4. 若历史与问题无关、无法消解指代，原样输出问题。
+"""
+
+
 class LLMService:
     def __init__(self) -> None:
         self._model = settings.DEEPSEEK_CHAT_MODEL
@@ -59,6 +69,29 @@ class LLMService:
     def chat(self, question: str, context_chunks: list[dict]) -> tuple[str, ChatMode]:
         """单轮生成（兼容路径，等价于 chat_with_history(history=[])）。"""
         return self.chat_with_history(question, context_chunks, [])
+
+    def rewrite_query_via_api(self, question: str, history: list[dict]) -> str:
+        """检索查询改写：基于历史把指代追问改写为自包含查询（decision-qa 查询改写规格）。
+
+        由模块级 rewrite_query 调用；无历史/LLM 不可用/异常时由其返回原 question（降级不 worse）。
+        """
+        lines: list[str] = []
+        for m in history:
+            content = (m.get("content") or "")[:500]  # 历史单条截断，防 token 失控
+            lines.append(f"{m.get('role', 'user')}: {content}")
+        messages = [
+            {"role": "system", "content": REWRITE_SYSTEM_PROMPT},
+            {
+                "role": "user",
+                "content": (
+                    f"<history>\n{''.join(l + chr(10) for l in lines)}</history>\n\n"
+                    f"<question>\n{question}\n</question>\n\n输出改写后的自包含查询："
+                ),
+            },
+        ]
+        out = self._post_chat(messages, temperature=0.0, max_tokens=200).strip()
+        out = out.strip("\"'“”‘’ ").strip()
+        return out or question
 
     def chat_direct(self, question: str, intent: str) -> tuple[str, ChatMode]:
         """寒暄/元问题直答（意图门控命中，不经过检索）。LLM 不可用或异常时降级为固定模板。"""
@@ -212,6 +245,19 @@ class LLMService:
         if last_user:
             parts.append(f"\n（注：大模型归纳暂不可用，以上为检索摘要；上文曾讨论「{last_user[:30]}」）")
         return " ".join(parts)
+
+
+# 检索查询改写入口：无历史/LLM 不可用/异常一律返回原问题（降级为单轮检索，不 worse）
+def rewrite_query(question: str, history: list[dict]) -> str:
+    if not history:
+        return question
+    svc = get_llm_service()
+    if not svc._enabled or not svc._client:
+        return question
+    try:
+        return svc.rewrite_query_via_api(question, history)
+    except Exception:
+        return question
 
 
 # 寒暄/元问题直答的固定模板（LLM 不可用或异常时降级使用）

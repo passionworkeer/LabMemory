@@ -126,6 +126,44 @@ def test_qa_mixed_content_failsafe_to_retrieval(client: TestClient):
     assert "bm25_hits" in body["retrieval_details"], "混合内容必须走完整检索管线"
 
 
+def test_qa_multi_turn_query_rewrite(client: TestClient, monkeypatch):
+    """查询改写：首轮无历史不改写；多轮指代追问用改写后查询检索并透传 search_query，原始问题保留用于落库。"""
+    from app.services import rag as rag_mod
+
+    token = _login(client, "pi")
+    h = _headers_user(token)
+
+    # 首轮：无历史 → search_query 即原始问题
+    r1 = client.post(
+        "/api/qa/ask",
+        json={"question": "EXP-DEMO-001 当前推荐温度是多少"},
+        headers=h,
+    )
+    assert r1.status_code == 200, r1.text
+    sid = r1.json()["session_id"]
+    assert r1.json()["retrieval_details"].get("search_query") == "EXP-DEMO-001 当前推荐温度是多少"
+
+    # 第二轮：注入可用 LLM 改写（模拟指代消解），验证改写查询进入检索并透传
+    def fake_rewrite(question, history):
+        assert history, "第二轮应携带会话历史"
+        return "EXP-DEMO-001 的浓度是多少"
+
+    monkeypatch.setattr(rag_mod, "rewrite_query", fake_rewrite)
+    r2 = client.post(
+        "/api/qa/ask",
+        json={"question": "它的浓度是多少", "session_id": sid},
+        headers=h,
+    )
+    assert r2.status_code == 200, r2.text
+    body = r2.json()
+    rd2 = body["retrieval_details"]
+    assert rd2.get("search_query") == "EXP-DEMO-001 的浓度是多少", "search_query 必须透传改写后查询"
+    assert body["question"] == "它的浓度是多少", "原始问题保留用于生成与落库"
+    # 落库回放：user 消息为原始问题（非改写查询）
+    msgs = client.get(f"/api/qa/sessions/{sid}", headers=h).json()["messages"]
+    assert msgs[-2]["content"] == "它的浓度是多少"
+
+
 # ---------------- B2 ----------------
 def _running_task(client: TestClient, token_pi: str, token_executor: str, experiment_id: str = "EXP-DEMO-001") -> str:
     """推一个会议 → 复核确认 → 审批 → 资源 → 失败边界确认 → 审计通过 → 启动，返回 running 态 task_id。"""
@@ -206,6 +244,19 @@ def test_result_not_frozen_with_extra_key(client: TestClient):
     assert r.json()["status"] == "submitted", f"额外观测不应触发 frozen：{r.json()}"
 
 
+def test_result_frozen_on_empty_value(client: TestClient):
+    """空值冻结：计划参数键存在但值为空串/null → 未如实记录，应 frozen。"""
+    pi, ex = _login(client, "pi"), _login(client, "executor")
+    tid = _running_task(client, pi, ex)
+    r = client.post(
+        f"/api/tasks/{tid}/results",
+        json={"actual_params": {"temperature": "", "concentration": "0.25", "time": None}},
+        headers=_headers_user(ex),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "frozen", f"空串/null 应视为未覆盖：{r.json()}"
+
+
 # ---------------- IDOR ----------------
 def test_idor_other_project_pi_blocked(client: TestClient):
     """IDOR：非项目所有者 PI 访问/操作他人项目下实验 → 403；admin 放行；所有者本人 → 200。"""
@@ -228,6 +279,58 @@ def test_idor_other_project_pi_blocked(client: TestClient):
     # 4) pi 访问自己项目下的实验 → 200
     r4 = client.get("/api/experiments/EXP-DEMO-001", headers=_headers_user(pi))
     assert r4.status_code == 200, f"项目所有者访问自己实验应 200：{r4.status_code}"
+
+
+# ---------------- 登录限速 ----------------
+def test_login_rate_limited_after_failures(client: TestClient):
+    """同一 (用户名, IP) 连续 5 次失败后锁定，第 6 次即使密码正确也返回 429。"""
+    from app.api import auth as auth_mod
+
+    username = "ratelimit_dummy"
+    try:
+        for _ in range(5):
+            r = client.post("/api/auth/login", json={"username": username, "password": "bad"})
+            assert r.status_code == 403, r.text
+        # 第 6 次：换正确密码（用户不存在，密码必然失败）也应命中 429 而非再次 403
+        r6 = client.post("/api/auth/login", json={"username": username, "password": "bad"})
+        assert r6.status_code == 429, f"达到失败阈值后应 429：{r6.status_code} {r6.text}"
+        # 其他用户不受牵连
+        r_other = client.post("/api/auth/login", json={"username": "executor", "password": "wrong"})
+        assert r_other.status_code == 403, r_other.text
+        # 正确登录不受影响（正确登录会清空自己的失败计数）
+        assert _login(client, "pi")
+    finally:
+        auth_mod._login_failures.clear()
+
+
+# ---------------- 生产环境关闭文档 ----------------
+def test_docs_disabled_in_production(tmp_path):
+    """APP_ENV=production 时不注册 /docs /redoc /openapi.json（子进程独立环境验证）。"""
+    import os
+    import subprocess
+    import sys
+
+    code = (
+        "from fastapi.testclient import TestClient\n"
+        "from app.main import app\n"
+        "c = TestClient(app)\n"
+        "print(c.get('/docs').status_code, c.get('/openapi.json').status_code)\n"
+    )
+    env = {
+        **os.environ,
+        "APP_ENV": "production",
+        "JWT_SECRET": "prod-test-secret-not-default",
+        "PLATFORM_API_KEY": "prod-test-key-not-default",
+    }
+    proj_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    out = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True, text=True, env=env, cwd=proj_root, timeout=120,
+    )
+    assert out.returncode == 0, out.stderr
+    docs_status, openapi_status = out.stdout.strip().splitlines()[-1].split()
+    assert docs_status == "404", f"production 下 /docs 应 404：{docs_status}"
+    assert openapi_status == "404", f"production 下 /openapi.json 应 404：{openapi_status}"
 
 
 # ---------------- S1 ----------------

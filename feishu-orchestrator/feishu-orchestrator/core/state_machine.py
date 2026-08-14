@@ -3,6 +3,7 @@
 管理会议/妙记的处理状态流转
 """
 import json
+import os
 from enum import Enum
 from pathlib import Path
 from typing import Optional, Dict, Any
@@ -78,8 +79,11 @@ class StateMachine:
         current["history"] = history
 
         try:
-            with open(path, "w", encoding="utf-8") as f:
+            # 临时文件 + os.replace 原子替换：避免写一半崩溃留下截断 JSON
+            tmp_path = path.with_name(f"{path.name}.tmp{os.getpid()}")
+            with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(current, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, path)
         except Exception as e:
             print(f"[StateMachine] 写入状态失败: {e}")
 

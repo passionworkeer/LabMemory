@@ -78,3 +78,38 @@ executor / lead / pi / system 均拥有 `operate_action_audit` 权限，使执�
 - WHEN u_guest 调用 `POST /web/tasks/T001/audit`
 - THEN 系统 SHALL 返回 403，required_permission 为 `operate_action_audit`
 
+### Requirement: 任务启动前复查版本时效
+
+`start_task` MUST 在放行前复查任务绑定主张仍是其实验的 current 且 `knowledge_status` 不属于 {refuted, replaced, insufficient_evidence}；不满足时任务 SHALL 置为 needs_confirmation 并返回版本差异与一键修正路径，不得进入 running。
+
+#### Scenario: 审计通过后主张被替代
+
+- GIVEN 任务 T 审计 passed、状态 audited、绑定主张 C1
+- WHEN C1 被新主张 C2 替代（C1→superseded）后用户启动 T
+- THEN 启动 SHALL 被拒绝，T 置 needs_confirmation，响应含一键修正提示
+
+#### Scenario: 绑定主张已被实验推翻
+
+- GIVEN 任务 T 绑定的 current 主张被结果发布标为 refuted
+- WHEN 用户启动 T
+- THEN 启动 SHALL 被拒绝并提示主张已被推翻
+
+### Requirement: 审计写路径并发保护
+
+行动前审计的一键修正与审计执行写路径 MUST 纳入按实验的写锁临界区，防止并发重复创建修正任务或重复插入审计记录。
+
+#### Scenario: 并发一键修正
+
+- GIVEN 同一 blocked 任务收到两个并发一键修正请求
+- THEN 仅一个 SHALL 创建修正任务，另一个 SHALL 返回已存在修正的提示
+
+### Requirement: 证据与范围检查的完整语义
+
+行动前审计中「证据与范围」检查 MUST 要求计划参数版本的 scope 与 parameters 均非空（AND 语义）；任一缺失时该检查 SHALL 判 blocked 并指明缺失项。
+
+#### Scenario: 仅 parameters 无 scope
+
+- GIVEN 任务计划参数版本仅含 parameters、scope 为 None
+- WHEN 行动前审计执行
+- THEN 证据与范围检查 SHALL 判 blocked 并提示补充适用范围
+

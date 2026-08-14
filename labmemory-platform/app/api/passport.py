@@ -46,9 +46,9 @@ list_router = APIRouter(prefix="/api", tags=["passport"])
 
 @list_router.get("/passports", response_model=list[PassportSummaryOut])
 def list_passports(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """实验护照列表：PI/admin 可见全部实验，其他角色仅可见自己参与（成员）的实验。"""
+    """实验护照列表：admin 可见全部实验，其他角色（含 PI）仅可见自己参与（成员）的实验。"""
     qs = db.query(Experiment)
-    if user.global_role not in ("admin", "pi"):
+    if user.global_role != "admin":
         qs = (
             qs.join(ExperimentMember, ExperimentMember.experiment_id == Experiment.id)
             .filter(ExperimentMember.user_id == user.id)
@@ -180,8 +180,8 @@ def get_passport(experiment_id: str, db: Session = Depends(get_db), user: User =
     exp = db.query(Experiment).filter(Experiment.experiment_id == experiment_id).first()
     if exp is None:
         raise NotFoundError(f"实验不存在：{experiment_id}")
-    # PI 全局角色可查看所有实验；其他角色需为成员
-    if user.global_role not in ("admin", "pi"):
+    # admin 可查看所有实验；其他角色（含 PI）需为成员
+    if user.global_role != "admin":
         ensure_experiment_member(db, exp.id, user)
     proj = db.get(Project, exp.project_id)
 

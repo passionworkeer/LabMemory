@@ -25,7 +25,7 @@ from app.db.models import (
 from app.core.errors import NotFoundError, PermissionDeniedError
 from app.services.embedding import get_embedding_service
 from app.services.indexer import ensure_index_ready
-from app.services.llm import detect_refusal, extract_citation_refs, get_llm_service
+from app.services.llm import detect_refusal, extract_citation_refs, get_llm_service, rewrite_query
 
 
 STATUS_WEIGHT = {
@@ -90,8 +90,9 @@ def _classify_intent(question: str) -> str:
 
 
 def _user_experiments(db: Session, user: User) -> list[int]:
-    """返回用户可见的 experiment id 列表。"""
-    if user.global_role in ("admin", "pi"):
+    """返回用户可见的 experiment id 列表（与 deps.visible_experiment_ids 同口径：
+    admin 全局可见，其余角色仅可见自己参与的实验——PI 不再全局放开）。"""
+    if user.global_role == "admin":
         return [e.id for e in db.query(Experiment).all()]
     rows = (
         db.query(Experiment.id)
@@ -339,12 +340,18 @@ def ask(
         )
     chunks_by_id = {c.chunk_id: c for c in candidate_chunks}
 
+    # 步骤 2.5：加载会话历史 + 检索查询改写（decision-qa「检索查询改写」）。
+    # 改写后的 search_query 仅用于 BM25/向量召回；原始 question 仍用于 LLM 生成与落库。
+    # 历史提前加载，步骤 8 生成阶段复用。无历史/LLM 不可用/改写异常 → 原问题（降级不 worse）。
+    history = _load_history(db, session)
+    search_query = rewrite_query(question, history)
+
     vec_avail = vec.vec_available(db)
 
     # 步骤 3：BM25 召回
     bm25_hits: list[tuple[str, float]] = []
     try:
-        bm25_hits = vec.fts_search(db, question, settings.RAG_RECALL_TOP, candidate_ids)
+        bm25_hits = vec.fts_search(db, search_query, settings.RAG_RECALL_TOP, candidate_ids)
     except Exception:
         pass
     bm25_scores = {cid: score for cid, score in bm25_hits}
@@ -352,7 +359,7 @@ def ask(
     # 步骤 4：向量召回
     vec_hits: list[tuple[str, float]] = []
     emb_service = get_embedding_service()
-    query_vec, emb_mode = emb_service.embed_query(question)
+    query_vec, emb_mode = emb_service.embed_query(search_query)
     try:
         if vec.vec_available(db):
             vec_hits = vec.vec_search(db, query_vec, settings.RAG_RECALL_TOP, candidate_ids)
@@ -371,6 +378,16 @@ def ask(
 
     # 步骤 6：重排
     ranked = _rerank(all_candidates, bm25_scores, vec_scores)
+    # 已执行检索轮次的公共 retrieval_details 基础字段（含 search_query 透明透传）
+    rd_base = {
+        "permission_filtered_experiments": len(exp_ids),
+        "status_filtered_chunks": len(candidate_ids),
+        "bm25_hits": len(bm25_hits),
+        "vector_hits": len(vec_hits),
+        "vector_available": vec_avail,
+        "after_relation_expansion": len(all_candidate_ids),
+        "search_query": search_query,
+    }
     if not ranked:
         return _finalize(
             db, session, question,
@@ -379,12 +396,7 @@ def ask(
                 reason="no_match_after_status_filter",
                 missing=["检索未命中任何可信证据，请补充实验编号/参数名/适用范围后重试"],
                 retrieval_details={
-                    "permission_filtered_experiments": len(exp_ids),
-                    "status_filtered_chunks": len(candidate_ids),
-                    "bm25_hits": len(bm25_hits),
-                    "vector_hits": len(vec_hits),
-                    "vector_available": vec_avail,
-                    "after_relation_expansion": len(all_candidate_ids),
+                    **rd_base,
                     "after_rerank": 0,
                     "top_score": 0.0,
                 },
@@ -403,14 +415,17 @@ def ask(
                     "请补充更具体的实验编号、参数名或适用范围",
                 ],
                 retrieval_details={
-                    "permission_filtered_experiments": len(exp_ids),
-                    "status_filtered_chunks": len(candidate_ids),
-                    "bm25_hits": len(bm25_hits),
-                    "vector_hits": len(vec_hits),
-                    "vector_available": vec_avail,
-                    "after_relation_expansion": len(all_candidate_ids),
+                    **rd_base,
                     "after_rerank": len(ranked),
                     "top_score": round(top_score, 4),
+                },
+                # 本轮已执行真实嵌入/检索，model_info 须反映实际模式（拒答轮诚实）
+                model_info={
+                    "embedding_mode": emb_mode,
+                    "embedding_model": settings.QWEN_EMBEDDING_MODEL if emb_mode != "hash-fallback" else "hash-fallback",
+                    "chat_mode": "skipped",
+                    "chat_model": "not-reached",
+                    "top_k": settings.RAG_TOP_K,
                 },
             ),
         )
@@ -429,8 +444,7 @@ def ask(
             }
         )
 
-    # 步骤 8：LLM 生成（多轮带历史）
-    history = _load_history(db, session)
+    # 步骤 8：LLM 生成（多轮带历史；history 已在步骤 2.5 提前加载，此处复用）
     llm = get_llm_service()
     answer_text, chat_mode = llm.chat_with_history(question, context_chunks, history)
 
@@ -444,12 +458,7 @@ def ask(
                 reason="llm_refused",
                 missing=[refusal_reason or "大模型判定证据不足"],
                 retrieval_details={
-                    "permission_filtered_experiments": len(exp_ids),
-                    "status_filtered_chunks": len(candidate_ids),
-                    "bm25_hits": len(bm25_hits),
-                    "vector_hits": len(vec_hits),
-                    "vector_available": vec_avail,
-                    "after_relation_expansion": len(all_candidate_ids),
+                    **rd_base,
                     "after_rerank": len(ranked),
                     "top_score": round(top_score, 4),
                 },
@@ -496,12 +505,7 @@ def ask(
                 "warning": warning,
             },
             "retrieval_details": {
-                "permission_filtered_experiments": len(exp_ids),
-                "status_filtered_chunks": len(candidate_ids),
-                "bm25_hits": len(bm25_hits),
-                "vector_hits": len(vec_hits),
-                "vector_available": vec_avail,
-                "after_relation_expansion": len(all_candidate_ids),
+                **rd_base,
                 "after_rerank": len(ranked),
                 "top_score": round(top_score, 4),
                 "score_breakdown": ranked[0][2] if ranked else {},

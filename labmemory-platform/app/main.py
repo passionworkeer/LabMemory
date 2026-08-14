@@ -155,12 +155,18 @@ def _run_migrations() -> None:
             logger.info("迁移：tasks 表移除 uq_task_per_meeting 唯一约束（一键修正可生成同会议新任务）")
 
 
+# 生产环境不暴露 API 文档（/docs /redoc /openapi.json），减少攻击面
+_is_production = settings.APP_ENV == "production"
+if _is_production:
+    logger.info("APP_ENV=production：已关闭 /docs /redoc /openapi.json")
+
 app = FastAPI(
     title="LabMemory 可信决策平台",
     description="实验决策与记忆系统 - 简化版（会后复核 / 行动审计 / 结果回流 / 实验护照）",
     version="2.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url=None if _is_production else "/docs",
+    redoc_url=None if _is_production else "/redoc",
+    openapi_url=None if _is_production else "/openapi.json",
     lifespan=lifespan,
 )
 

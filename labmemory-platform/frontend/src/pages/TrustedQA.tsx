@@ -633,6 +633,29 @@ export default function TrustedQA() {
                   </div>
                 ) : (
                   <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                    {lastScope.retrieval_details.search_query &&
+                      lastScope.retrieval_details.search_query !== lastScope.question && (
+                        <div
+                          title={`原始问题：${lastScope.question}`}
+                          style={{
+                            display: "flex",
+                            alignItems: "flex-start",
+                            gap: 8,
+                            padding: "7px 10px",
+                            borderRadius: 8,
+                            background: "var(--blue-soft)",
+                            border: "1px solid #d9e5ff",
+                            fontSize: 12,
+                            color: "var(--text)",
+                          }}
+                        >
+                          <span style={{ width: 16, textAlign: "center" }}>🔍</span>
+                          <span style={{ flex: 1 }}>
+                            <span className="text-muted">检索查询（指代已消解）：</span>
+                            <b>{lastScope.retrieval_details.search_query}</b>
+                          </span>
+                        </div>
+                      )}
                     <RetrievalStageRow
                       icon={STAGE_ICONS[0]}
                       label="权限过滤"

@@ -182,6 +182,7 @@ def card_callback(payload: CardCallbackIn, db: Session = Depends(get_db)):
     from app.db.locking import lock_experiment_for_write
     with lock_experiment_for_write(db, exp.id):
         task = None
+        new_claim = None
         if review and review.status == "pending":
             review.status = "processed"
             review.decision = "confirmed"
@@ -197,6 +198,7 @@ def card_callback(payload: CardCallbackIn, db: Session = Depends(get_db)):
             blocked_by_conflict = any(c.get("severity") == "high" for c in conflicts)
             publish_status = "pending_supplement" if blocked_by_conflict else gate["publish_status"]
             claim = _build_claim(db, meeting, exp, cand_row, None, publish_status=publish_status)
+            new_claim = claim
             db.add(claim)
             db.flush()
             if publish_status == "current":
@@ -286,6 +288,20 @@ def card_callback(payload: CardCallbackIn, db: Session = Depends(get_db)):
         resp = {"status": status, "action_audit": action_audit, "candidate_id": candidate_id, "message": message}
         _log_callback(db, token, action_type, candidate_id, resp, actor_id, task_id=task.task_id)
         db.commit()
+
+        # 卡片审批发布的主张与会议证据进入检索索引（与 confirm_review 对齐，否则问答不可见）
+        if new_claim is not None:
+            try:
+                from app.services.indexer import index_claim, index_meeting
+                index_claim(db, new_claim)
+                index_meeting(db, meeting)
+                db.commit()
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "卡片审批路径检索索引更新失败（业务已提交，可经 admin 重建索引恢复）: %s", e
+                )
+                db.rollback()
         return resp
 
 

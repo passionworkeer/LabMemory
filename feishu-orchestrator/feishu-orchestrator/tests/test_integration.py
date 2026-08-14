@@ -506,9 +506,14 @@ class TestWebhookSignature(unittest.TestCase):
         try:
             handler = WebhookHandler.__new__(WebhookHandler)
             handler._send_json = lambda *a, **kw: None  # 裸 handler 无 requestline，stub 发送
+            handler.headers = {}
             handler.client_address = ("127.0.0.1", 0)
             self.assertTrue(handler._verify_request(b"{}", "webhook.event"))
+            # 携带 X-Forwarded-For 的代理转发请求即使来自 localhost 也拒绝
+            handler.headers = {"X-Forwarded-For": "203.0.113.7"}
+            self.assertFalse(handler._verify_request(b"{}", "webhook.event"))
             # 非本地来源即使 mock 模式也拒绝
+            handler.headers = {}
             handler.client_address = ("10.0.0.5", 0)
             self.assertFalse(handler._verify_request(b"{}", "webhook.event"))
         finally:

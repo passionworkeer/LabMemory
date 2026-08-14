@@ -102,10 +102,19 @@
 - real Aily 路径确定性校验（experiment_ref 格式，real/mock 共用）— 同上
 - spec-代码路径对齐说明（`/api/` 为准）— 同上
 
+**第三轮对抗审查修复（2026-08-14，4 个 OpenSpec change 归档）**：
+- 可信内核 P0：候选 scope 贯通落库、supersede 改为按 scope 等价匹配（不同适用范围的 current 并存）、语义栅栏扫描复核修改值、复核确认/审计写路径纳入实验写锁、任务启动前复查绑定主张版本时效、claim 替代/卡片发布后检索索引同步 — `2026-08-14-fix-trust-core-round3`
+- QA 查询改写：多轮指代追问先经 LLM 改写为自包含查询再召回（`search_query` 透传 + 前端展示「检索查询（指代已消解）」，历史原文仍不直接进入召回）— `2026-08-14-fix-qa-query-rewrite`
+- 编排器可靠性：失败状态写真实 source_id、事件/流水线幂等改原子抢占（acquire/release/mark）、状态快照临时文件原子写、mock 模式拒 X-Forwarded-For、webhook 请求体上限 1MB（413）— `2026-08-14-fix-orchestrator-reliability`
+- 平台杂项加固：问答/简报/护照可见性统一为 admin 全局 + 成员口径（PI 不再全局放宽）、结果冻结判定值非空（null/空串视为未覆盖）、登录失败限速（用户名+IP 5 次锁 15 分钟，429）、APP_ENV=production 关闭 /docs /redoc /openapi.json — `2026-08-14-fix-platform-misc-hardening`
+
 **仍有的诚实边界**：
 - 真实 URL 证据可达性探活（需飞书文档权限，demo 用占位 URL，本次为结构化校验）。
 - 多 worker 分布式幂等（本次单进程原子文件锁；DB 唯一约束为生产增强）。
 - 真飞书实时联调（需真 FEISHU 凭证）。
 - spec 中 `/web/...` 路径的逐条改写未做（已用对齐说明声明以 `/api/` 为准）。
+- pending_validation 主张的升级路径（需产品规则：验证通过后如何转 current）。
+- QA 会话列表 N+1 查询（message_count 逐会话 count，量大时需聚合查询）。
+- 候选卡片的「修改建议」提示（candidate revision hint，需产品交互定义）。
 
 > 8 个核心卖点已从「PPT/缩水」转为代码实现，规则源自 PRD §10/§13/line 854。剩余边界为外部凭证/生产增强，非产品逻辑缺口。

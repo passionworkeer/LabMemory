@@ -18,6 +18,9 @@ from reliability.integration_log import integration_log
 # 签名时间窗（秒）：超出该窗口的请求视为重放，直接拒绝
 SIGNATURE_MAX_AGE_SECONDS = 300
 
+# 请求体上限（字节）：超过直接 413，防止超大 body 打爆内存/磁盘日志
+MAX_BODY_BYTES = 1024 * 1024
+
 
 class WebhookHandler(BaseHTTPRequestHandler):
     """Webhook 请求处理器"""
@@ -43,12 +46,21 @@ class WebhookHandler(BaseHTTPRequestHandler):
         else:
             self._send_json(404, {"error": "Not Found"})
 
+    def _read_body(self) -> bytes:
+        """读取请求体；超过 MAX_BODY_BYTES 时发送 413 并返回 None。"""
+        content_length = int(self.headers.get("Content-Length", 0))
+        if content_length > MAX_BODY_BYTES:
+            self._send_json(413, {"error": "request body too large"})
+            return None
+        return self.rfile.read(content_length)
+
     def _handle_event(self):
         """处理飞书事件订阅"""
         try:
             # 读取请求体
-            content_length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(content_length)
+            body = self._read_body()
+            if body is None:
+                return
             data = json.loads(body)
 
             # URL 验证（飞书事件订阅的验证挑战）
@@ -107,8 +119,9 @@ class WebhookHandler(BaseHTTPRequestHandler):
     def _handle_card_callback(self):
         """处理卡片回调"""
         try:
-            content_length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(content_length)
+            body = self._read_body()
+            if body is None:
+                return
             data = json.loads(body)
 
             # URL 验证
@@ -155,8 +168,9 @@ class WebhookHandler(BaseHTTPRequestHandler):
     def _handle_platform_action(self):
         """处理平台下发的 FeishuActionRequest（反向联动）。"""
         try:
-            content_length = int(self.headers.get("Content-Length", 0))
-            body = self.rfile.read(content_length)
+            body = self._read_body()
+            if body is None:
+                return
             data = json.loads(body)
 
             # 鉴权：mock 模式限 localhost；real 模式校验 Bearer {PLATFORM_API_KEY}
@@ -196,6 +210,10 @@ class WebhookHandler(BaseHTTPRequestHandler):
         """平台动作请求鉴权：mock 仅 localhost；real 校验 Authorization: Bearer {PLATFORM_API_KEY}。"""
         if Config.is_mock_mode():
             client_ip = (getattr(self, "client_address", None) or ("",))[0]
+            # 同 _verify_request：拒绝经本机代理转发的远端请求
+            if self.headers.get("X-Forwarded-For", "").strip():
+                self._send_json(403, {"ok": False, "error": "RUN_MODE=mock 拒绝代理转发的远端请求（X-Forwarded-For）"})
+                return False
             if client_ip not in ("127.0.0.1", "::1", "localhost"):
                 self._send_json(403, {"ok": False, "error": "RUN_MODE=mock 仅允许本地访问；生产请设 RUN_MODE=real"})
                 return False
@@ -225,6 +243,12 @@ class WebhookHandler(BaseHTTPRequestHandler):
         if Config.is_mock_mode():
             # mock 模式：限 localhost，拒绝远端（防未设 RUN_MODE=real 即暴露导致验签旁路）
             client_ip = (getattr(self, "client_address", None) or ("",))[0]
+            # 反向代理在本机转发时 client_address 恒为 127.0.0.1，需额外拒绝带
+            # X-Forwarded-For 的请求，否则远端流量可经本机代理绕过 localhost 限制
+            forwarded_for = self.headers.get("X-Forwarded-For", "").strip()
+            if forwarded_for:
+                self._send_json(403, {"error": "RUN_MODE=mock 拒绝代理转发的远端请求（X-Forwarded-For）"})
+                return False
             if client_ip not in ("127.0.0.1", "::1", "localhost"):
                 self._send_json(403, {"error": "RUN_MODE=mock 仅允许本地访问；生产请设 RUN_MODE=real"})
                 return False

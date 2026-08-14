@@ -43,6 +43,9 @@ class PipelineOrchestrator:
         """
         print(f"[Pipeline] 开始处理妙记: {minutes_url}")
 
+        source_id = None
+        idempotency_key = None
+
         try:
             # Step 1: 获取妙记详情
             print("[Pipeline] Step 1: 获取妙记详情...")
@@ -52,12 +55,17 @@ class PipelineOrchestrator:
             source_id = meeting_package["source_object_id"]
             meeting_title = meeting_package["title"]
 
-            # 幂等检查
+            # 幂等检查（已处理过的直接返回缓存结果）
             idempotency_key = f"pipeline:{source_id}"
             cached = idempotency_guard.check(idempotency_key)
             if cached:
                 print("[Pipeline] 检测到重复处理，直接返回缓存结果")
                 return cached
+
+            # 原子抢占处理权：并发/重试到达时只执行一次，其余跳过
+            if not idempotency_guard.acquire(idempotency_key):
+                print("[Pipeline] 检测到并发/重复处理，跳过")
+                return {"status": "duplicate", "source_id": source_id, "message": "重复或正在处理的妙记，已跳过"}
 
             # 更新状态
             state_machine.set_state(
@@ -129,8 +137,9 @@ class PipelineOrchestrator:
                 "submitted_at": now_iso(),
             }
 
-            # 标记幂等
+            # 标记幂等（此后不再释放占位，防止误删已标记结果）
             idempotency_guard.mark(idempotency_key, result)
+            idempotency_key = None
 
             # 更新最终状态
             if reviewer_id:
@@ -149,6 +158,9 @@ class PipelineOrchestrator:
 
         except Exception as e:
             print(f"[Pipeline] ❌ 流程失败: {e}")
+            # 失败释放幂等占位，允许后续重试（尚未抢占时无副作用）
+            if idempotency_key:
+                idempotency_guard.release(idempotency_key)
             # 失败告警（PRD §13：异常可降级可见；best-effort，不阻断抛出）
             if reviewer_id:
                 try:
@@ -159,10 +171,10 @@ class PipelineOrchestrator:
                 except Exception:
                     pass
 
-            # 更新状态
-            source_id = minutes_url
+            # 更新状态（优先用真实 source_id；妙记解析失败时才回退到 URL）
+            state_key_source = source_id or minutes_url
             state_machine.set_state(
-                f"minutes:{source_id}",
+                f"minutes:{state_key_source}",
                 MeetingState.FAILED,
                 extra={"error": str(e)}
             )
@@ -215,11 +227,16 @@ class PipelineOrchestrator:
 
         source_id = meeting_package["source_object_id"]
 
-        # 幂等检查
+        # 幂等检查（已处理过的直接返回缓存结果）
         idempotency_key = f"pipeline:{source_id}"
         cached = idempotency_guard.check(idempotency_key)
         if cached:
             return cached
+
+        # 原子抢占处理权：并发/重试到达时只执行一次，其余跳过
+        if not idempotency_guard.acquire(idempotency_key):
+            print("[Pipeline] 检测到并发/重复处理，跳过")
+            return {"status": "duplicate", "source_id": source_id, "message": "重复或正在处理的文本，已跳过"}
 
         try:
             # 注册会议到平台（供 candidate 反查）
@@ -257,12 +274,17 @@ class PipelineOrchestrator:
                 "submitted_at": now_iso(),
             }
 
+            # 标记幂等（此后不再释放占位，防止误删已标记结果）
             idempotency_guard.mark(idempotency_key, result)
+            idempotency_key = None
             print("[Pipeline] ✅ 流程执行成功!")
             return result
 
         except Exception as e:
             print(f"[Pipeline] ❌ 流程失败: {e}")
+            # 失败释放幂等占位，允许后续重试
+            if idempotency_key:
+                idempotency_guard.release(idempotency_key)
             if reviewer_id:
                 try:
                     im_card_adapter.send_alert_card(

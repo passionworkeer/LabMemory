@@ -146,10 +146,11 @@ python -m scripts.mock_feishu_push demo                         # （可选）�
 
 **访问：**
 - 前端 UI：http://localhost:8081 （构建后挂载 React UI；未构建回退登录占位）
-- Swagger API 文档：http://localhost:8081/docs
+- Swagger API 文档：http://localhost:8081/docs （仅开发环境；`APP_ENV=production` 时关闭 /docs /redoc /openapi.json）
 - 健康检查：http://localhost:8081/health
 
 **演示账号**（密码均 `123456`）：`pi` / `lead` / `executor` / `admin`
+> 登录接口对同一「用户名+IP」连续 5 次失败将锁定 15 分钟（返回 429）。
 
 ### 4.4 两个 Demo 故事（评测样例）
 
