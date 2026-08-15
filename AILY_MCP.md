@@ -23,34 +23,36 @@
 
 ## 2. 鉴权
 
-**核心约束（决定鉴权方式）**：飞书 Aily 「添加自定义 MCP」**只支持 name + url + desc 三字段**——
-没有 Authorization Header 配置入口，**且 URL 校验拒绝 queryParam 后的字符串**（前端报
-"请输入合法的 URL"，一年多内部反馈未支持，详见飞书内部讨论记录：许诚/丁龙辉/费章建/
-欧梦凡等多人要求支持 Header 鉴权未果）。这是产品级硬约束，不是配置问题。
+**核心约束（决定鉴权方式）**：飞书 Aily 「添加自定义 MCP」**只支持 name + url + desc 三项**，
+没有 Authorization Header 配置入口（一年多内部反馈未支持，详见飞书内部讨论）。
+官方默许的兼容方式是把鉴权信息**拼进 URL queryParam**（参考高德 MCP
+`https://mcp.amap.com/sse?key=YOUR_KEY`，与本服务同模式）。
 
-**LabMemory MCP Server 当前采用「无鉴权 + 网络层防护」模式**（适配 Aily 三字段限制）：
+**LabMemory MCP Server 同时支持两种鉴权**（取一即可）：
 
-| 项 | 值 |
+| 方式 | 何时用 |
 |---|---|
-| Aily 后台端点 URL | `https://<your-domain.com>/mcp/sse`（**裸 URL**，不要带 `?token=...`） |
-| 服务端开关 | `MCP_REQUIRE_AUTH=false`（关闭 Bearer 校验） |
-| 网络层防护 | nginx `limit_req zone=labmemory_mcp burst=20 nodelay` + 必要时 IP 白名单（详见 §5） |
+| `https://<your-domain.com>/mcp/sse?token=<PLATFORM_API_KEY>` | **Aily 接入的主路径**（后台无法配 Header） |
+| `https://<your-domain.com>/mcp/sse` + `Authorization: Bearer <PLATFORM_API_KEY>` | curl 自检 / 本地调试 / 未来若 Aily 支持 Header |
 
-**风险评估**：
-- 公网任何人都能 GET `/mcp/sse` 拿 SSE 流，但**实际破坏面有限**——MCP 协议是机器对机器，
-  恶意调用的工具调用会被 schema 校验 + 状态机闸门（preflight / decision state machine）
-  拦下，敏感操作需要登录平台 web UI 完成（decision verdict、execution submit 等）。
-- 所有工具调用写入 `AuditEvent`，可追溯到 session_id 与远程 IP（nginx 日志）。
-- 严格场景可恢复鉴权（`MCP_REQUIRE_AUTH=true` + 配反向代理 header 注入 token）。
+两种方式**优先级**：Authorization Bearer Header > URL `?token=` / `?key=` / `?api_key=`。
+其中 queryParam 还兼容 `token` / `key` / `api_key` 三种命名（高德用 key、Aily 文档示例用 token）。
 
-**MCP 协议设计**：鉴权**只在 SSE 握手（GET /sse）时校验**（若启用）。后续 POST /messages
-由 MCP SDK 自动分发的 UUID v4 session_id 路由（128 位熵），这是 MCP 协议本身的会话模型，
-与高德 / 社区实现完全一致。
+**MCP 协议设计**：鉴权**只在 SSE 握手（GET /sse）时校验一次**。后续 POST /messages 由
+MCP SDK 自动分发的 UUID v4 session_id 路由（128 位熵），这是 MCP 协议本身的会话模型，
+与高德 / 社区实现完全一致。**不要**担心 Aily 后续调用工具时会丢 token。
 
 > **身份来源（MCP 是机器对机器，非用户身份）**：MCP Server 不接受 `x-aily-user` 之类的客户端
 > 自报身份头（防伪造）。所有需要用户身份的字段（`reviewer`、`assignee`、`executor`）由
 > **Aily 模型在工具参数里显式传入**，由平台侧 `_resolve_actor()` 按 username / feishu_user_id 解析，
 > 解析失败时按既定规则降级（如默认回 PI）。审计追溯走平台 `actor_id` + webhook correlation_id。
+
+### 2.2 备用方案：无鉴权模式（`MCP_REQUIRE_AUTH=false`）
+
+若 Aily 后台 URL 校验拒绝带 `?token=` 的输入（报"请输入合法的 URL"），可临时切到
+无鉴权模式：服务端跳过 Bearer 校验，Aily 后台填裸 URL，公网防护走 nginx IP rate limit。
+本方案风险面有限（恶意调用被 schema + 状态机闸门拦下），详见 transport.py 注释与
+`docs/aily-skill/skill-prompt.md` A6 备用方案。
 
 ## 3. 工具清单（10 个，完整 schema 见 [`tools-manifest.json`](./aily-skill/tools-manifest.json)）
 
@@ -73,14 +75,12 @@
 2. 粘贴 [`skill-prompt.md`](./aily-skill/skill-prompt.md) 的 Part B 提示词正文到「提示词」框；
 3. 切到 **MCP** 页 → **添加自定义 MCP**：
    - 名称：`labmemory`
-   - 端点 URL：**`https://<your-domain.com>/mcp/sse`**（**裸 URL**，不要带 `?token=...`；
-     Aily 后端 URL 校验会拒掉带 queryParam 的输入）
+   - 端点 URL：**`https://<your-domain.com>/mcp/sse?token=<PLATFORM_API_KEY>`**
+     ⚠️ token 必须拼进 URL（**不要**在「鉴权」或「描述」里找 Bearer 字段——Aily 后台没有）
    - 描述：随便填
 4. 保存并启用；Aily 会自动调 `tools/list` 拉取工具清单。
 
-> **关于鉴权方式**：服务端已关闭鉴权（`MCP_REQUIRE_AUTH=false`）来适配 Aily 后台
-> 无 Header 字段的现实。**不要**在 URL 里硬塞 `?token=`——Aily 前端 URL 校验会
-> 拒绝。运维侧已加 nginx IP rate limit 防滥用（`deploy/README.md`）。
+> **备用方案**：若 Aily 后台报"请输入合法的 URL"，参考 §2.2 切到无鉴权模式 + 裸 URL。
 >
 > **关于 CLI**：`aily-mcp install-remote --url ... --protocol sse` 同样没有 `--header` /
 > `--auth` 参数，是 CLI 工具本身的限制。手动在 Aily 后台配 MCP 是当前唯一入口。

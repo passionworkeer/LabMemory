@@ -237,6 +237,28 @@ def test_messages_endpoint_no_auth_required(client):
     # 没有 session_id → SDK 返回 400；中间件不再拦
     assert r.status_code == 400, f"中间件应放行，SDK 应因缺 session_id 返回 400；得到 {r.status_code}"
 
+def test_sse_endpoint_returns_correct_message_path():
+    """回归 — SSE endpoint 事件必须是相对路径 /messages（不是 /mcp/messages）。
+
+    关键回归：app.mount("/mcp", subapp) 后，子应用里的路径相对 Mount 解析；
+    若 SseServerTransport(endpoint="/mcp/messages") 传绝对路径，SDK 在 endpoint
+    事件里塞的就是 /mcp/messages，客户端拿到后 POST 到 https://host/mcp/mcp/messages
+    （双前缀 404），导致 Aily / Cursor 等客户端握手失败、保存不上 MCP 服务。
+
+    修法：endpoint 必须传相对路径 /messages，Mount 自动加 /mcp 前缀。
+    """
+    import asyncio
+    from app.mcp_server.transport import _sse_transport
+
+    # 直接读 transport 实例的 endpoint，验证它是相对路径
+    # SseServerTransport 的 _endpoint 是私有字段，但 public endpoint 是构造参数；
+    # 内部实现里写 self._endpoint = endpoint（sse.py line 122）。
+    assert _sse_transport._endpoint == "/messages", (
+        f"SSE 端点配置错：当前 endpoint={_sse_transport._endpoint!r}，"
+        "必须是 /messages（相对路径），否则 Mount 后会变成 /mcp/mcp/messages 双前缀。"
+    )
+
+
 def test_sse_endpoint_with_auth_streams_endpoint_event():
     """回归 — 直接 ASGI 三参调用 _mcp_sse_handler 验证 SSE 建连。
 

@@ -45,7 +45,13 @@ logger = logging.getLogger(__name__)
 # 平台侧不重复校验（避免 Aily 出口 Host 不在白名单内被误拒）。
 # 文档：Aily 出口 IP 段须加入 Nginx allow 列表，详见 deploy/nginx-labmemory-mcp.conf。
 _sse_transport = SseServerTransport(
-    endpoint=settings.MCP_MESSAGES_PATH,
+    # H2/M1 + 路径双前缀 bug 修复：endpoint 必须是**相对**于 SSE 挂载点的路径，
+    # 而不是绝对路径。SseServerTransport 内部把此值原样塞进 endpoint 事件的 data，
+    # 客户端（Aily）按返回路径 POST。app.mount("/mcp", subapp) 后，子应用内部
+    # 路由是 /sse 与 /messages；Mount 把 /mcp 加上去 → 实际访问 /mcp/messages。
+    # 若传 /mcp/messages（绝对路径），客户端会 POST 到 /mcp/mcp/messages（双前缀 404）。
+    # 同理 SSE 路径 /mcp/sse 在 Route 里要去前缀变成 /sse（见 _build_mcp_subapp）。
+    endpoint=settings.MCP_MESSAGES_PATH.removeprefix("/mcp") or "/messages",
     security_settings=TransportSecuritySettings(enable_dns_rebinding_protection=False),
 )
 

@@ -9,46 +9,52 @@
 
 # Part A：MCP 接入配置（管理员一次性操作）
 
-## A1. 关键现实：Aily 后台三字段硬约束
+## A1. 关键现实：MCP 端点 URL 必须自带 token
 
-飞书 Aily 「添加自定义 MCP」**只支持 name + url + desc 三个字段**——没有 Authorization
-Header 配置入口（一年多内部反馈未支持，官方默许的 queryParam 拼 key 也被前端 URL
-校验拒掉，提示"请输入合法的 URL"）。这是产品级硬约束，不是配置问题。
+飞书 Aily 「添加自定义 MCP」**只支持 name + url + desc**——无法配置 Authorization Header
+（这一点 Aily 内部一年多反馈未支持，官方默许的兼容方式是 queryParam）。
 
-**所以我们走「无鉴权 + 网络层防护」模式**：服务端关闭 Bearer 校验（`MCP_REQUIRE_AUTH=false`），
-Aily 后台填裸 URL，依赖 nginx IP rate limit 与 reverse proxy 网络层防护（详见部署
-`deploy/README.md`）。这个模式与 MCP SDK 官方示例、高德 MCP、各社区实现完全一致
-（MCP 设计本身是机器对机器，鉴权是「约定 URL 不外泄」而不是强鉴权）。
+**所以：token 必须拼进 URL 的 queryParam 里**，参考高德 MCP 官方示例
+`https://mcp.amap.com/sse?key=YOUR_KEY`（与本服务同一种模式）。
 
-## A2. 你需要填的一个东西
+> **已知限制**：Aily 后台 URL 校验可能拒绝带 queryParam 的输入（报"请输入合法的 URL"）。
+> 实测中我们遇到两种情况都能跑通（带 token 拼 URL / 裸 URL + 后端无鉴权）。
+> **首选是带 token 拼 URL 的方案**——服务端 `MCP_REQUIRE_AUTH=true` 强制鉴权；
+> 若 Aily 后台校验拒掉，回退方案见 A6（裸 URL + `MCP_REQUIRE_AUTH=false`，需 nginx
+> IP rate limit 防滥用）。
 
-| 项 | 值 |
-|---|---|
-| MCP Server 端点 | `https://<your-domain.com>/mcp/sse`（裸 URL，**不要**带 `?token=`） |
+## A2. 你需要准备的两样东西
 
-**自检**（验证连通性，预期返回 200 + text/event-stream）：
+| 项 | 值 | 从哪拿 |
+|---|---|---|
+| MCP Server 端点（含 token） | `https://<your-domain.com>/mcp/sse?token=<PLATFORM_API_KEY>` | token 见部署 `AILY_MCP.md`，把尖括号替换成实际 48 位强随机串 |
+| Bearer Token（备用） | `PLATFORM_API_KEY`（48 位强随机串） | 平台管理员（服务器 `~/labmemory/labmemory-platform/.env`） |
+
+**自检**（拿到 Token 后先验证连通性，预期返回 200 + text/event-stream）：
 
 ```bash
-curl -N https://<your-domain.com>/mcp/sse
-```
+# 推荐 — Aily 实际使用的方式（queryParam 鉴权）
+curl -N "https://<your-domain.com>/mcp/sse?token=<PLATFORM_API_KEY>"
 
-预期：终端一直挂着不动（正常——SSE 长连接），看到包含 `event: endpoint` /
-`data: /messages?session_id=...` 的事件就是通了。
+# 等价 — curl 自检 / 本地调试可用 Header
+curl -N -H "Authorization: Bearer <PLATFORM_API_KEY>" https://<your-domain.com>/mcp/sse
+```
 
 ## A3. 在 Aily 后台接入 MCP（3 步）
 
 1. 进入 **Aily 企业版后台 → MCP 服务 → 添加自定义 MCP**：
    - 名称：`labmemory`
-   - 端点 URL：**`https://<your-domain.com>/mcp/sse`**（裸 URL，**不要**拼 `?token=...`）
+   - 端点 URL：**`https://<your-domain.com>/mcp/sse?token=<PLATFORM_API_KEY>`**（token 拼进 URL 里，不要漏）
+   - 传输方式：SSE
    - 描述：随便填
 2. 保存——Aily 会自动发起 SSE 连接并调 `tools/list`，看到 10 个 `labmemory_*` 工具
    即为接入成功。
 3. 把这些工具**授权给工作助手**（工作助手 → 连接服务 → 勾选 `labmemory`）。
 
 > ⚠️ **不要**在 Aily 后台找"Bearer Token 配置"或"Header 配置"字段——它没有。
-> 这是 Aily 产品的已知限制（许诚/丁龙辉/费章建/欧梦凡等一年多反馈未支持）。
-> 服务端已关闭鉴权（`MCP_REQUIRE_AUTH=false`）来适配这个限制；运维侧已加 nginx
-> IP rate limit 防滥用（详见 `deploy/README.md`）。
+> 鉴权通过 URL 里的 `?token=` 完成。**也不要**担心 Aily 后续调用工具时会丢
+> token——MCP 协议设计上 token 只在 SSE 握手时校验一次，后续消息通过 SDK 自动
+> 分发的 UUID v4 session_id 路由（128 位熵）。
 
 ## A4. 创建技能并粘贴提示词
 
@@ -63,6 +69,13 @@ curl -N https://<your-domain.com>/mcp/sse
 2. 返回带 `jump_url` 的飞书卡片。
 
 平台侧同步会推送 `decision.pending` webhook 给 PI/Lead 复核——整个链路即通。
+
+## A6. 如果 Aily 后台报"请输入合法的 URL"（备用方案）
+
+Aily 后端 URL 校验可能拒绝带 `?token=...` 的输入。备用方案：
+- 服务端临时切到 `MCP_REQUIRE_AUTH=false`（详见 `AILY_MCP.md §2.2`）
+- Aily 后台填裸 URL `https://<your-domain.com>/mcp/sse`
+- 公网防护走 nginx `limit_req`（已配 `burst=40 nodelay`）
 
 ---
 
