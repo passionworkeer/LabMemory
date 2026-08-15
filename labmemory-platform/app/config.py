@@ -46,6 +46,15 @@ class Settings(BaseSettings):
     FEISHU_ORCHESTRATOR_BASE_URL: str = "http://localhost:8080"
     FEISHU_ORCHESTRATOR_MODE: str = "mock"
 
+    # === Aily 集成契约（/v1/* 入站 + 出站 webhook）===
+    # 出站 webhook 目标地址（Aily 侧接收端点基址）；未开启时不真调
+    AILY_WEBHOOK_BASE_URL: str = "http://localhost:9000"
+    AILY_WEBHOOK_SECRET: str = "dev-aily-webhook-secret-please-rotate"
+    # "true" 才真实推送 webhook；否则仅记录跳过（默认关闭，避免本地误发）
+    AILY_INTEGRATION_ENABLED: str = "false"
+    # /v1/transcripts 缺少 experiment_id 时的回退实验
+    AILY_DEFAULT_EXPERIMENT_ID: str = "EXP-DEMO-001"
+
     # === 可信知识问答 RAG 配置 ===
     # Qwen 嵌入（DashScope API）。未配置 key 时降级到 hash 伪向量。
     QWEN_API_KEY: str = ""

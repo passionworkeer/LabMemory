@@ -292,3 +292,23 @@ class QAMessage(Base, IDMixin, TimestampMixin):
     intent: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     session: Mapped[QASession] = relationship(back_populates="messages")
+
+
+class IntegrationRef(Base, IDMixin, TimestampMixin):
+    """Aily 集成契约 ID 映射：把 Aily 侧 ID（transcript/extraction/decision/version/...）映射到平台实体。
+
+    避免在领域表加外键列，任意一侧字段调整只改本映射层。
+    同一平台实体可被多个 ref_type 引用（如 result_id 同时是 execution 与 knowledge），故唯一键为 (ref_type, aily_id)。
+    """
+    __tablename__ = "integration_refs"
+    __table_args__ = (UniqueConstraint("ref_type", "aily_id", name="uq_ref_type_aily_id"),)
+
+    # transcript / extraction / decision / version / execution / passport / knowledge / reverify
+    ref_type: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    # Aily 侧 ID（对外暴露）
+    aily_id: Mapped[str] = mapped_column(String(128), index=True, nullable=False)
+    # 平台实体类型：meeting / review / claim / task / result / experiment / candidate
+    platform_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    # 平台实体唯一字符串 ID（meeting_id / claim_id / task_id / result_id / experiment_id ...）
+    platform_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)

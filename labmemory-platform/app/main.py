@@ -22,6 +22,7 @@ from app.api import meetings as meetings_api
 from app.api import passport as passport_api
 from app.api import qa as qa_api
 from app.api import integration as integration_api
+from app.api import aily as aily_api
 from app.api import results as results_api
 from app.api import tasks as tasks_api
 from app.api.deps import get_db
@@ -240,6 +241,7 @@ app.include_router(passport_api.router)
 app.include_router(passport_api.list_router)
 app.include_router(qa_api.router)
 app.include_router(integration_api.router)
+app.include_router(aily_api.aily_router)
 
 
 # === 前端静态文件 ===
