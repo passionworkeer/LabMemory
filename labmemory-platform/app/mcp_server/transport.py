@@ -25,7 +25,7 @@ from starlette.applications import Starlette
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 from starlette.routing import Mount, Route
-from starlette.types import ASGIApp, Receive, Scope, Send
+from starlette.types import ASGIApp
 
 from app.config import settings
 from app.mcp_server import mcp_server
@@ -68,15 +68,13 @@ class _McpAuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
-async def _mcp_sse_endpoint(scope: Scope, receive: Receive, send: Send) -> None:
-    """GET /mcp/sse：建立 SSE 流并驱动 mcp_server.run()。
+async def _mcp_sse_handler(scope: Scope, receive: Receive, send: Send) -> None:
+    """GET /mcp/sse 的原生 ASGI 实现。
 
     鉴权已在中间件完成。connect_sse 上下文返回 (read_stream, write_stream)，
     然后 mcp_server.run() 在这两个流上循环处理 MCP 协议消息，
     直到客户端断开（http.disconnect 信号由 connect_sse 内部吞掉）。
     """
-    if scope.get("type") != "http":
-        return
     async with _sse_transport.connect_sse(scope, receive, send) as (read_stream, write_stream):
         await mcp_server.run(
             read_stream=read_stream,
@@ -87,11 +85,27 @@ async def _mcp_sse_endpoint(scope: Scope, receive: Receive, send: Send) -> None:
         )
 
 
-async def _mcp_messages_endpoint(scope: Scope, receive: Receive, send: Send) -> None:
-    """POST /mcp/messages：客户端→服务端消息回带。"""
-    if scope.get("type") != "http":
-        return
+async def _mcp_messages_handler(scope: Scope, receive: Receive, send: Send) -> None:
+    """POST /mcp/messages 的原生 ASGI 实现：客户端→服务端消息回带。"""
     await _sse_transport.handle_post_message(scope, receive, send)
+
+
+class _ASGIApp:
+    """把原生 ASGI 函数包成 Starlette Route 可识别的「非函数 endpoint」。
+
+    关键原因：Starlette Route 对函数 endpoint 走 request_response(f)，
+    只传 Request（Request 在 BaseHTTPMiddleware 链下没有 send 属性）；
+    对非函数 endpoint 直接当 ASGI app 调用，传 (scope, receive, send) 三参，
+    这正是 MCP SDK 的 SseServerTransport 要求的签名。
+    """
+
+    def __init__(self, handler):
+        self._handler = handler
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope.get("type") != "http":
+            return
+        await self._handler(scope, receive, send)
 
 
 async def _mcp_manifest_endpoint(request: Request) -> JSONResponse:
@@ -129,8 +143,8 @@ def _build_mcp_subapp() -> ASGIApp:
     msg_sub_path = settings.MCP_MESSAGES_PATH.removeprefix("/mcp")  # /messages
     subapp = Starlette(
         routes=[
-            Route(sse_sub_path, endpoint=_mcp_sse_endpoint, methods=["GET"]),
-            Route(msg_sub_path, endpoint=_mcp_messages_endpoint, methods=["POST"]),
+            Route(sse_sub_path, endpoint=_ASGIApp(_mcp_sse_handler), methods=["GET"]),
+            Route(msg_sub_path, endpoint=_ASGIApp(_mcp_messages_handler), methods=["POST"]),
             Route("/manifest", endpoint=_mcp_manifest_endpoint, methods=["GET"]),
         ]
     )

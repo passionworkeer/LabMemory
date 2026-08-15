@@ -167,3 +167,42 @@ def test_messages_endpoint_requires_auth(client):
     """POST /mcp/messages 缺 Bearer → 403。"""
     r = client.post("/mcp/messages", json={"jsonrpc": "2.0", "method": "ping", "id": 1})
     assert r.status_code == 403
+
+def test_sse_endpoint_with_auth_streams_endpoint_event():
+    """回归 — 直接 ASGI 三参调用 _mcp_sse_handler 验证 SSE 建连。
+
+    关键回归：Starlette Route 对函数 endpoint 走 request_response(f) 只传 Request，
+    但 _mcp_sse_handler 需要原生 (scope, receive, send) 三参。改用 _ASGIApp 包裹后，
+    Route 才把它当 ASGI app 调用并正确传三参。本测试直接调 handler（mock send），
+    避开 TestClient 与 anyio task group 之间的悬挂交互（无限 SSE 流会让 stream() 不返回）。
+    注：mcp_server.run() 在客户端断开前不发 endpoint 事件，故只验 status+content-type，
+    足以覆盖「签名错导致 500」这一回归点。
+    """
+    import asyncio
+    from app.mcp_server.transport import _mcp_sse_handler
+
+    events: list[tuple[str, object]] = []
+    disconnected = {"flag": False}
+
+    async def fake_receive():
+        if disconnected["flag"]:
+            return {"type": "http.disconnect"}
+        disconnected["flag"] = True
+        return {"type": "http.disconnect"}
+
+    async def fake_send(msg):
+        if msg.get("type") == "http.response.start":
+            events.append(("status", msg["status"]))
+            events.append(("headers", dict((k, v.decode("latin-1") if isinstance(v, (bytes, bytearray)) else v) for k, v in msg["headers"])))
+
+    scope = {
+        "type": "http", "method": "GET", "path": "/sse", "raw_path": b"/sse",
+        "headers": [], "query_string": b"", "scheme": "http", "server": ("t", 1),
+    }
+
+    asyncio.run(asyncio.wait_for(_mcp_sse_handler(scope, fake_receive, fake_send), timeout=4.0))
+
+    statuses = [v for t, v in events if t == "status"]
+    assert statuses and statuses[0] == 200, f"SSE 响应 status 非 200：{events!r}（500 = ASGI 签名错）"
+    headers = dict((t, v) for t, v in events if t == "headers")
+    assert any("text/event-stream" in str(v).lower() for v in headers.values()), headers
