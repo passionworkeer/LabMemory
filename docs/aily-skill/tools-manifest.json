@@ -1,0 +1,350 @@
+{
+  "server": {
+    "name": "labmemory",
+    "version": "1.0.0"
+  },
+  "transport": "sse",
+  "sse_path": "/mcp/sse",
+  "messages_path": "/mcp/messages",
+  "auth": "Bearer <PLATFORM_API_KEY>",
+  "tools": [
+    {
+      "name": "labmemory_submit_transcript",
+      "description": "收妙记/逐字稿：把飞书会议 transcript 写入平台。调用前必须已知 meeting_id 与 experiment_id。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "meeting_id"
+        ],
+        "properties": {
+          "meeting_id": {
+            "type": "string",
+            "description": "会议唯一 ID"
+          },
+          "experiment_id": {
+            "type": "string",
+            "description": "实验编号（缺失回退 EXP-DEMO-001）"
+          },
+          "note_id": {
+            "type": "string"
+          },
+          "speakers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "segments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "start": {
+                  "type": "number"
+                },
+                "end": {
+                  "type": "number"
+                },
+                "speaker": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "labmemory_submit_extraction",
+      "description": "Aily 抽取结果回写：参数/争议/风险/任务候选。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "transcript_id"
+        ],
+        "properties": {
+          "transcript_id": {
+            "type": "string"
+          },
+          "extraction_id": {
+            "type": "string"
+          },
+          "params": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "disputes": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "risks": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "task_candidates": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "scope": {
+            "type": "object"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    {
+      "name": "labmemory_create_review",
+      "description": "为抽取结果创建人工复核项；触发 decision.pending webhook。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "extraction_id"
+        ],
+        "properties": {
+          "extraction_id": {
+            "type": "string"
+          },
+          "decision_id": {
+            "type": "string"
+          },
+          "assignee": {
+            "type": "string",
+            "description": "用户名（pi/lead/executor/admin）"
+          },
+          "jump_url": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "labmemory_submit_verdict",
+      "description": "人在平台点通过/驳回：verdict=pass 走六道闸门，reject 直接结束。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "decision_id",
+          "verdict"
+        ],
+        "properties": {
+          "decision_id": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "pass",
+              "reject"
+            ]
+          },
+          "reviewer": {
+            "type": "string"
+          },
+          "comment": {
+            "type": "string"
+          },
+          "verdict_at": {
+            "type": "string",
+            "description": "ISO 8601"
+          }
+        }
+      }
+    },
+    {
+      "name": "labmemory_issue_version",
+      "description": "签发正式参数版本（幂等：已存在则返回旧 version_id）。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "decision_id"
+        ],
+        "properties": {
+          "decision_id": {
+            "type": "string"
+          },
+          "params": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "effective_from": {
+            "type": "string"
+          },
+          "evidence_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "labmemory_preflight_check",
+      "description": "执行前自检：版本/审批/资源/失败边界，不通过时触发 preflight.blocked webhook。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "version_id"
+        ],
+        "properties": {
+          "version_id": {
+            "type": "string"
+          },
+          "executor": {
+            "type": "string"
+          },
+          "planned_at": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "labmemory_submit_execution",
+      "description": "实际执行结果回写；actual_params 偏差时记 frozen 并触发 execution.deviated webhook。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "version_id",
+          "actual_params",
+          "results"
+        ],
+        "properties": {
+          "version_id": {
+            "type": "string"
+          },
+          "actual_params": {
+            "type": "object"
+          },
+          "results": {
+            "type": "object"
+          },
+          "executor": {
+            "type": "string"
+          },
+          "executed_at": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "labmemory_update_passport",
+      "description": "更新实验护照/主张状态/失败边界。",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "passport_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "failure_boundary": {
+            "type": "object"
+          },
+          "claim_state": {
+            "type": "string",
+            "enum": [
+              "supported",
+              "partial_support",
+              "refuted",
+              "replaced",
+              "insufficient"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "labmemory_publish_knowledge",
+      "description": "发布知识（按护照下最新已提交结果）；触发 knowledge.ready webhook。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "passport_id"
+        ],
+        "properties": {
+          "passport_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "doc_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "claim_state": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    {
+      "name": "labmemory_create_reverify",
+      "description": "创建复验任务；触发 reverify.due webhook（需后续调度器到点 fire）。",
+      "inputSchema": {
+        "type": "object",
+        "required": [
+          "passport_id"
+        ],
+        "properties": {
+          "passport_id": {
+            "type": "string"
+          },
+          "assignee": {
+            "type": "string"
+          },
+          "due_at": {
+            "type": "string"
+          },
+          "criteria": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  ]
+}

@@ -55,6 +55,16 @@ class Settings(BaseSettings):
     # /v1/transcripts 缺少 experiment_id 时的回退实验
     AILY_DEFAULT_EXPERIMENT_ID: str = "EXP-DEMO-001"
 
+    # === Aily MCP Server（同进程 SSE 暴露 10 个工具）===
+    # 总开关：false 时 /mcp/sse 不挂载（与 /v1/* HTTP 契约解耦）
+    MCP_ENABLED: bool = True
+    # SSE 端点路径（生产建议加随机 token 防扫描，如 /mcp/sse/<random>）
+    MCP_SSE_PATH: str = "/mcp/sse"
+    # MCP POST 消息端点路径（SSE 客户端回传用）
+    MCP_MESSAGES_PATH: str = "/mcp/messages"
+    # 注：原 MCP_ALLOW_INSECURE_USER_HEADER 已被删除（C1 修复）—— MCP 是机器对机器，
+    # 详细见 openspec/changes/add-aily-mcp-server 与 AILY_MCP.md §1
+
     # === 可信知识问答 RAG 配置 ===
     # Qwen 嵌入（DashScope API）。未配置 key 时降级到 hash 伪向量。
     QWEN_API_KEY: str = ""

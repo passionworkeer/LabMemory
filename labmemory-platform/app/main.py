@@ -30,6 +30,8 @@ from app.config import settings
 from app.core.errors import DomainError
 from app.db.base import Base
 from app.db.session import engine
+from app.mcp_server import tools as mcp_tools  # 触发 @mcp_server.call_tool() 注册
+from app.mcp_server.transport import mount_mcp
 
 logging.basicConfig(
     level=settings.LOG_LEVEL,
@@ -243,6 +245,9 @@ app.include_router(qa_api.router)
 app.include_router(integration_api.router)
 app.include_router(aily_api.aily_router)
 
+# Aily MCP Server（同进程 SSE 暴露 10 个工具，详见 openspec/changes/add-aily-mcp-server）
+mount_mcp(app)
+
 
 # === 前端静态文件 ===
 # 优先 frontend/dist/（npm run build 产物）；回退 app/static/（仅登录占位）
@@ -264,7 +269,7 @@ if _dist_dir is not None:
 
     @app.get("/{full_path:path}")
     def spa_fallback(full_path: str):
-        if full_path.startswith(("api/", "v1/", "health", "docs", "redoc", "openapi", "assets/", "static/")):
+        if full_path.startswith(("api/", "v1/", "mcp/", "health", "docs", "redoc", "openapi", "assets/", "static/")):
             raise HTTPException(status_code=404, detail=f"Not found: /{full_path}")
         return FileResponse(str(_dist_dir / "index.html"))
 else:

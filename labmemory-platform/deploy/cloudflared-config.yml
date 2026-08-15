@@ -1,0 +1,39 @@
+# Cloudflare Tunnel 配置参考（LabMemory MCP）
+#
+# 适用：不想暴露公网源站 IP，或已用 Cloudflare 边缘。
+# 部署：
+#   cloudflared tunnel create labmemory
+#   cloudflared tunnel route dns labmemory labmemory.example.com
+#   cloudflared tunnel run labmemory
+
+tunnel: labmemory
+credentials-file: /etc/cloudflared/<TUNNEL_ID>.json
+
+ingress:
+  # MCP SSE 主入口
+  - hostname: labmemory.example.com
+    path: ^/mcp/.*
+    service: http://platform:8000
+    originRequest:
+      connectTimeout: 30s
+      noHappyEyeballs: true
+      keepAliveConnections: 32
+      keepAliveTimeout: 90s
+      httpHostHeader: labmemory.example.com
+      # 透传 Bearer Token；Cloudflare 默认不剥
+      originServerName: platform
+
+  # 默认回源（其它 API 路由）
+  - hostname: labmemory.example.com
+    service: http://platform:8000
+
+  # 兜底
+  - service: http_status:404
+
+# === WAF 自定义规则（控制台配置） ===
+# 路径：labmemory.example.com/mcp/* 的访问规则
+#   - Expression: ip.src in {203.166.190.0/24 203.166.191.0/24}
+#   - Action: Skip（放行）其余默认 Block
+#
+# === Bot Fight Mode ===
+# /mcp/* 关闭 Bot Fight（Cloudflare 误判 Aily 长连接为机器人）
