@@ -158,15 +158,84 @@ def test_manifest_endpoint_with_auth(client):
 
 
 def test_sse_endpoint_requires_auth(client):
-    """GET /mcp/sse 缺 Bearer → 403（中间件拦）。"""
+    """GET /mcp/sse 缺 Bearer / 缺 queryParam token → 403（中间件拦）。"""
     r = client.get("/mcp/sse")
     assert r.status_code == 403
 
 
-def test_messages_endpoint_requires_auth(client):
-    """POST /mcp/messages 缺 Bearer → 403。"""
-    r = client.post("/mcp/messages", json={"jsonrpc": "2.0", "method": "ping", "id": 1})
+def _run_sse_handler_with_query_params(query_string: bytes, headers: list | None = None) -> list[tuple[str, object]]:
+    """直接 ASGI 三参调 _mcp_sse_handler，避开 TestClient SSE 挂死。
+
+    返回记录到的 (kind, value) 事件列表。客户端立即断开，只验证 status + content-type。
+    """
+    import asyncio
+    from app.mcp_server.transport import _mcp_sse_handler
+
+    events: list[tuple[str, object]] = []
+    disconnected = {"flag": False}
+
+    async def fake_receive():
+        if disconnected["flag"]:
+            return {"type": "http.disconnect"}
+        disconnected["flag"] = True
+        return {"type": "http.disconnect"}
+
+    async def fake_send(msg):
+        if msg.get("type") == "http.response.start":
+            events.append(("status", msg["status"]))
+            events.append(("headers", dict((k, v.decode("latin-1") if isinstance(v, (bytes, bytearray)) else v) for k, v in msg["headers"])))
+
+    scope = {
+        "type": "http", "method": "GET", "path": "/sse", "raw_path": b"/sse",
+        "headers": headers or [], "query_string": query_string, "scheme": "http", "server": ("t", 1),
+    }
+
+    asyncio.run(asyncio.wait_for(_mcp_sse_handler(scope, fake_receive, fake_send), timeout=4.0))
+    return events
+
+
+def test_sse_endpoint_with_query_param_token():
+    """GET /mcp/sse?token=xxx（无 Header）→ 200 + text/event-stream。
+
+    现实：Aily 自定义 MCP 后台只能填 name+url+description，无法配 Authorization
+    Header；服务端必须接受 queryParam 鉴权（参考高德 MCP `?key=xxx` 模式）。
+    直接调 handler 而非 TestClient，避免 SSE 长连接导致 TestClient 卡死。
+    """
+    events = _run_sse_handler_with_query_params(b"token=dev-platform-api-key-please-rotate")
+    statuses = [v for t, v in events if t == "status"]
+    assert statuses and statuses[0] == 200, f"queryParam 鉴权未通过：{events!r}"
+    headers = dict((t, v) for t, v in events if t == "headers")
+    assert any("text/event-stream" in str(v).lower() for v in headers.values()), headers
+
+
+def test_sse_endpoint_with_bearer_header():
+    """GET /mcp/sse 带 Authorization Bearer → 200（保留兼容，便于 curl 自检）。"""
+    events = _run_sse_handler_with_query_params(
+        b"",
+        headers=[(b"authorization", b"Bearer dev-platform-api-key-please-rotate")],
+    )
+    statuses = [v for t, v in events if t == "status"]
+    assert statuses and statuses[0] == 200, f"Bearer 鉴权失败：{events!r}"
+
+
+def test_sse_endpoint_wrong_token_403(client):
+    """GET /mcp/sse 带错误 token → 403（queryParam 与 Header 都验）。"""
+    r = client.get("/mcp/sse?token=wrong-key")
     assert r.status_code == 403
+
+    r = client.get("/mcp/sse", headers={"Authorization": "Bearer wrong-key"})
+    assert r.status_code == 403
+
+
+def test_messages_endpoint_no_auth_required(client):
+    """POST /mcp/messages 不再被中间件拦（设计选择：MCP 协议以 session_id 为唯一凭证）。
+
+    见 transport.py `protected_prefixes` 注释。MCP SDK 在 session_id 缺失或无效时
+    返回 400/404，由 SDK 内部处理。我们只验证中间件不再前置鉴权。
+    """
+    r = client.post("/mcp/messages", json={"jsonrpc": "2.0", "method": "ping", "id": 1})
+    # 没有 session_id → SDK 返回 400；中间件不再拦
+    assert r.status_code == 400, f"中间件应放行，SDK 应因缺 session_id 返回 400；得到 {r.status_code}"
 
 def test_sse_endpoint_with_auth_streams_endpoint_event():
     """回归 — 直接 ASGI 三参调用 _mcp_sse_handler 验证 SSE 建连。

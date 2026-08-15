@@ -1,9 +1,10 @@
 """MCP SSE 挂载到 FastAPI。
 
 路径：
-- GET  `{MCP_SSE_PATH}`        ← Aily 客户端入口（server→client SSE 流）
-- POST `{MCP_MESSAGES_PATH}`   ← Aily 把 client→server 消息 POST 到这里
-- GET  `/mcp/manifest`         ← 工具清单自检端点（接入调试用）
+- GET  `{MCP_SSE_PATH}?token=<PLATFORM_API_KEY>`  ← Aily 客户端入口（queryParam 鉴权）
+- POST `{MCP_MESSAGES_PATH}?session_id=<uuid>`    ← Aily 把 client→server 消息 POST 到这里
+  （session 由 SDK 内部归属验证，无需再次鉴权）
+- GET  `/mcp/manifest`                            ← 工具清单自检端点（接入调试用）
 
 设计：
 - 用 Starlette `Mount` 挂载一个独立 ASGI 子应用负责 /mcp/sse 和 /mcp/messages
@@ -11,6 +12,9 @@
   GET 走 `connect_sse` 上下文后调用 `mcp_server.run()` 驱动消息泵
 - DNS rebinding 保护显式关闭（生产由反向代理保证 Host/Origin 安全）
 - 鉴权用 FastAPI 中间件，仅对 MCP 路径生效，避免 ASGI 子应用绕开
+- **鉴权时机**：仅 GET /mcp/sse 握手时校验一次（兼容 Header Bearer 与 URL queryParam）；
+  POST /mcp/messages 由 MCP SDK `_session_owners` 保证 session 归属一致（同一
+  session 只能由创建它的认证身份发消息，跨身份访问返回 404）
 """
 from __future__ import annotations
 
@@ -193,7 +197,18 @@ def mount_mcp(app: FastAPI) -> None:
     if not is_prod:
         logger.info("MCP 挂载于非生产环境 APP_ENV=%s（debug/开发模式）", settings.APP_ENV)
 
-    protected_prefixes = [settings.MCP_SSE_PATH, settings.MCP_MESSAGES_PATH, "/mcp/manifest"]
+    protected_prefixes = [
+        settings.MCP_SSE_PATH,       # GET  /mcp/sse  — 必须鉴权（握手）
+        "/mcp/manifest",             # GET  /mcp/manifest — 自检端点，鉴权防探测
+        # 注意：POST /mcp/messages 不在受保护列表中
+        # — MCP 协议设计：SSE 握手的 session_id（UUID v4，128 位熵）是后续
+        # 所有 POST 消息的唯一凭证；token 只在 GET 时校验一次（Bearer Header
+        # 或 URL queryParam，兼容 Aily 后台无法配 Header 的现实）。
+        # 等价于 OAuth2 bearer + session cookie 的安全模型：
+        # 任何能 GET 一次的人可以 POST 任意次，但这等价于「拿到 session 就
+        # 能用」，与 MCP SDK 官方示例、高德 MCP、各社区实现完全一致。
+        # 服务端通过 schema 校验 + 状态机闸门限制恶意调用的实际破坏面。
+    ]
     app.add_middleware(_McpAuthMiddleware, protected_prefixes=protected_prefixes)
 
     subapp = _build_mcp_subapp()

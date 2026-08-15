@@ -9,37 +9,54 @@
 
 # Part A：MCP 接入配置（管理员一次性操作）
 
-## A1. 你需要准备的两样东西
+## A1. 关键现实：MCP 端点 URL 必须自带 token
+
+飞书 Aily 「添加自定义 MCP」**只支持 name + url + desc**——无法配置 Authorization Header
+（这一点 Aily 内部一年多反馈未支持，官方默许的兼容方式是 queryParam）。
+
+**所以：token 必须拼进 URL 的 queryParam 里**，参考高德 MCP 官方示例
+`https://mcp.amap.com/sse?key=YOUR_KEY`（与本服务同一种模式）。
+
+## A2. 你需要准备的两样东西
 
 | 项 | 值 | 从哪拿 |
 |---|---|---|
-| MCP Server 端点 | `https://<your-domain.com>/mcp/sse` | 部署文档 `AILY_MCP.md` |
-| Bearer Token | `PLATFORM_API_KEY`（48 位强随机串） | 平台管理员（服务器 `~/labmemory/labmemory-platform/.env`） |
+| MCP Server 端点（含 token） | `https://<your-domain.com>/mcp/sse?token=<PLATFORM_API_KEY>` | token 见部署 `AILY_MCP.md`，把尖括号替换成实际 48 位强随机串 |
+| Bearer Token（备用） | `PLATFORM_API_KEY`（48 位强随机串） | 平台管理员（服务器 `~/labmemory/labmemory-platform/.env`） |
 
-**自检**（拿到 Token 后先验证连通性，预期返回 200 和 10 个工具）：
+**自检**（拿到 Token 后先验证连通性，预期返回 200 + text/event-stream）：
 
 ```bash
-curl -H "Authorization: Bearer <PLATFORM_API_KEY>" https://<your-domain.com>/mcp/manifest
+# 推荐 — Aily 实际使用的方式（queryParam 鉴权）
+curl -N "https://<your-domain.com>/mcp/sse?token=<PLATFORM_API_KEY>"
+
+# 等价 — curl 自检 / 本地调试可用 Header
+curl -N -H "Authorization: Bearer <PLATFORM_API_KEY>" https://<your-domain.com>/mcp/sse
 ```
 
-## A2. 在 Aily 后台接入 MCP（3 步）
+## A3. 在 Aily 后台接入 MCP（3 步）
 
 1. 进入 **Aily 企业版后台 → MCP 服务 → 添加自定义 MCP**：
    - 名称：`labmemory`
-   - 端点 URL：`https://<your-domain.com>/mcp/sse`
+   - 端点 URL：**`https://<your-domain.com>/mcp/sse?token=<PLATFORM_API_KEY>`**（token 拼进 URL 里，不要漏）
    - 传输方式：SSE
-   - 鉴权方式：Bearer Token，Token 填 `<PLATFORM_API_KEY>`
+   - 描述：随便写
 2. 保存后 Aily 会自动发起 SSE 连接并调 `tools/list`——看到 10 个
    `labmemory_*` 工具即为接入成功。
 3. 把这些工具**授权给工作助手**（工作助手 → 连接服务 → 勾选 `labmemory`）。
 
-## A3. 创建技能并粘贴提示词
+> ⚠️ **不要**在 Aily 后台找"Bearer Token 配置"——它没有这个字段。鉴权已通过 URL 里的
+> `?token=` 完成。**也不要**担心 Aily 后续调用工具时会丢 token——MCP 协议设计上
+> token 只在 SSE 握手时校验一次，后续消息通过 session_id 路由（SSE 流上由服务端
+> 分发的 UUID v4，128 位熵）。
+
+## A4. 创建技能并粘贴提示词
 
 1. **Aily 后台 → 技能 → 新建技能**，名称建议「LabMemory 决策记忆」；
 2. 把本文件 **Part B 的提示词正文**整段粘贴进「提示词」框；
 3. 保存并启用，绑定到「会议结束后自动复盘」场景。
 
-## A4. 验证闭环（可选但建议）
+## A5. 验证闭环（可选但建议）
 
 在 Aily 对话里发一句「这场实验会议的纪要帮忙入档」，观察 Aily 是否：
 1. 调 `labmemory_submit_transcript` 成功；

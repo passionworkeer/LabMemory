@@ -23,15 +23,29 @@
 
 ## 2. 鉴权
 
-每个请求带 `Authorization: Bearer <PLATFORM_API_KEY>`（同 `/v1/*` 现有 Bearer Key）。
+**核心约束（决定鉴权方式）**：飞书 Aily 「添加自定义 MCP」**只支持 name + url + desc 三项**，
+没有 Authorization Header 配置入口（一年多内部反馈未支持，详见飞书内部讨论）。
+官方默许的兼容方式是把鉴权信息**拼进 URL queryParam**（参考高德 MCP
+`https://mcp.amap.com/sse?key=YOUR_KEY`，与本服务同模式）。
+
+**LabMemory MCP Server 同时支持两种鉴权**（取一即可）：
+
+| 方式 | 何时用 |
+|---|---|
+| `https://<your-domain.com>/mcp/sse?token=<PLATFORM_API_KEY>` | **Aily 接入的主路径**（后台无法配 Header） |
+| `https://<your-domain.com>/mcp/sse` + `Authorization: Bearer <PLATFORM_API_KEY>` | curl 自检 / 本地调试 / 未来若 Aily 支持 Header |
+
+两种方式**优先级**：Authorization Bearer Header > URL `?token=` / `?key=` / `?api_key=`。
+其中 queryParam 还兼容 `token` / `key` / `api_key` 三种命名（高德用 key、Aily 文档示例用 token）。
+
+**MCP 协议设计**：鉴权**只在 SSE 握手（GET /sse）时校验一次**。后续 POST /messages 由
+MCP SDK 自动分发的 UUID v4 session_id 路由（128 位熵），这是 MCP 协议本身的会话模型，
+与高德 / 社区实现完全一致。**不要**担心 Aily 后续调用工具时会丢 token。
 
 > **身份来源（MCP 是机器对机器，非用户身份）**：MCP Server 不接受 `x-aily-user` 之类的客户端
 > 自报身份头（防伪造）。所有需要用户身份的字段（`reviewer`、`assignee`、`executor`）由
 > **Aily 模型在工具参数里显式传入**，由平台侧 `_resolve_actor()` 按 username / feishu_user_id 解析，
 > 解析失败时按既定规则降级（如默认回 PI）。审计追溯走平台 `actor_id` + webhook correlation_id。
-
-可选 `x-aily-user: <飞书 user_id>` 用于审计追溯；生产环境**仅在 Aily 出口 IP 白名单内信任**，
-详见下文部署部分。沙箱调试可设 `MCP_ALLOW_INSECURE_USER_HEADER=true` 强制信任。
 
 ## 3. 工具清单（10 个，完整 schema 见 [`tools-manifest.json`](./aily-skill/tools-manifest.json)）
 
@@ -51,13 +65,18 @@
 ## 4. Aily 侧配置（飞书后台）
 
 1. 进入 Aily 企业版后台 → **技能** → **新建技能**；
-2. 粘贴 [`skill-prompt.md`](./aily-skill/skill-prompt.md) 全文到「提示词」框；
-3. 切到 **MCP** 页：
+2. 粘贴 [`skill-prompt.md`](./aily-skill/skill-prompt.md) 的 Part B 提示词正文到「提示词」框；
+3. 切到 **MCP** 页 → **添加自定义 MCP**：
    - 名称：`labmemory`
-   - 端点 URL：`https://<你的域名>/mcp/sse`
-   - 鉴权方式：Bearer Token
-   - Token：`<PLATFORM_API_KEY>`（从平台管理员处获取）
+   - 端点 URL：**`https://<your-domain.com>/mcp/sse?token=<PLATFORM_API_KEY>`**
+     ⚠️ token 必须拼进 URL（**不要**在「鉴权」或「描述」里找 Bearer 字段——Aily 后台没有）
+   - 描述：随便填
 4. 保存并启用；Aily 会自动调 `tools/list` 拉取工具清单。
+
+> **关于 CLI**：`aily-mcp install-remote --url ... --protocol sse` 同样没有 `--header` /
+> `--auth` 参数，这是 CLI 工具本身的限制，不是服务端问题。**手动在 Aily 后台配 MCP 是
+> 当前唯一支持 Header / queryParam 的入口**（后台会把 URL 当字符串原样使用，所以 queryParam
+> 自然生效）。
 
 ## 5. 部署 & 安全
 
@@ -221,8 +240,8 @@ pytest tests/ -v
 
 | 现象 | 排查 |
 |---|---|
-| Aily `initialize` 401 | 检查 Bearer Token；用 `curl -H "Authorization: Bearer $K" /mcp/manifest` 自检 |
-| `tools/list` 返空 | 平台进程没启动 `mcp_server`；检查 `MCP_ENABLED` 与启动日志 |
+| Aily `initialize` 401 / 配置后 tools/list 返空 | URL 里漏了 `?token=...`；用 `curl -N "https://<your-domain.com>/mcp/sse?token=$K"` 自检 |
+| Aily `tools/list` 返 404 | 域名或路径拼错；先 `curl /mcp/manifest` 验证域名可达 |
 | POST /mcp/messages 403 | 反向代理 IP 白名单误伤了 Aily 出口；放行 |
 | SSE 连接建立后立刻断开 | nginx `proxy_buffering off` 漏配；连不上 SSE 心跳 |
 | 工具返 isError=true code=not_found | ID 错；检查参数 ID 是否来自上一次工具调用的返回值 |
