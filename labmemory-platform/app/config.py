@@ -62,6 +62,11 @@ class Settings(BaseSettings):
     MCP_SSE_PATH: str = "/mcp/sse"
     # MCP POST 消息端点路径（SSE 客户端回传用）
     MCP_MESSAGES_PATH: str = "/mcp/messages"
+    # 鉴权开关：Aily 后台只能填 name+url+desc 三字段（不支持 Header/queryParam），
+    # 设为 false 时跳过 Bearer / token 校验；公网部署需配合 nginx IP rate limit
+    # 与 reverse proxy 网络层防护。默认 true（开发/自检场景保留鉴权）。
+    # 详见 AILY_MCP.md §2「Aily 后台三字段限制的现实」
+    MCP_REQUIRE_AUTH: bool = True
     # 注：原 MCP_ALLOW_INSECURE_USER_HEADER 已被删除（C1 修复）—— MCP 是机器对机器，
     # 详细见 openspec/changes/add-aily-mcp-server 与 AILY_MCP.md §1
 

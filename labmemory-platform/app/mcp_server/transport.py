@@ -51,10 +51,14 @@ _sse_transport = SseServerTransport(
 
 
 class _McpAuthMiddleware(BaseHTTPMiddleware):
-    """所有 /mcp/* 请求先过 Bearer 鉴权（中间件层走，方便 ASGI 子应用也受保护）。
+    """所有 /mcp/* 请求先过鉴权（中间件层走，方便 ASGI 子应用也受保护）。
 
     中间件只能拦截 dispatch 链；ASGI 子应用走 Mount 直达，但本中间件顺序在外层，
     所以请求先经过中间件再决定是否进 Mount。
+
+    鉴权开关：settings.MCP_REQUIRE_AUTH=false 时完全跳过鉴权（适用于飞书 Aily
+    后台只能填 name+url+desc 三字段的现实，公网部署需配合 nginx IP rate limit
+    与 reverse proxy 网络层防护）。详见 AILY_MCP.md §2。
     """
 
     def __init__(self, app: ASGIApp, protected_prefixes: Iterable[str]):
@@ -62,7 +66,7 @@ class _McpAuthMiddleware(BaseHTTPMiddleware):
         self._prefixes = tuple(protected_prefixes)
 
     async def dispatch(self, request: Request, call_next):
-        if any(request.url.path.startswith(p) for p in self._prefixes):
+        if settings.MCP_REQUIRE_AUTH and any(request.url.path.startswith(p) for p in self._prefixes):
             try:
                 check_bearer(request)
             except Exception as exc:  # noqa: BLE001
@@ -169,7 +173,7 @@ def mount_mcp(app: FastAPI) -> None:
         logger.info("MCP 未启用（MCP_ENABLED=false），跳过挂载")
         return
 
-    # H3 危险配置检测
+    # H3 危险配置检测（仅在需要鉴权时强制 PLATFORM_API_KEY 强度）
     _default_sentinels = {
         "dev-platform-api-key-please-rotate",  # conftest 默认
         "change-me-in-production",  # 通用 sentinel
@@ -179,36 +183,54 @@ def mount_mcp(app: FastAPI) -> None:
     is_short_key = len(api_key) < 32
     is_prod = settings.APP_ENV == "production"
 
-    if is_prod and (is_default_key or is_short_key):
-        logger.error(
-            "MCP 拒绝挂载：APP_ENV=production 但 PLATFORM_API_KEY=%s；"
-            "请在 .env 中覆盖为 ≥32 字节的强随机值",
-            "默认值" if is_default_key else f"仅 {len(api_key)} 字节",
-        )
-        return
-    if is_default_key:
+    if settings.MCP_REQUIRE_AUTH:
+        # 鉴权模式下 PLATFORM_API_KEY 必须强随机（生产环境强制）
+        if is_prod and (is_default_key or is_short_key):
+            logger.error(
+                "MCP 拒绝挂载：APP_ENV=production 但 PLATFORM_API_KEY=%s；"
+                "请在 .env 中覆盖为 ≥32 字节的强随机值",
+                "默认值" if is_default_key else f"仅 {len(api_key)} 字节",
+            )
+            return
+        if is_default_key:
+            logger.warning(
+                "⚠️ MCP 挂载但 PLATFORM_API_KEY 是代码默认 sentinel（%s）；"
+                "生产环境必须覆盖，dev/测试环境可忽略",
+                api_key[:12] + "...",
+            )
+        elif is_short_key:
+            logger.warning("⚠️ MCP 挂载但 PLATFORM_API_KEY 仅 %d 字节（建议 ≥32）", len(api_key))
+    else:
+        # 无鉴权模式：PLATFORM_API_KEY 可不配（不会被使用）；但仍提示运维
         logger.warning(
-            "⚠️ MCP 挂载但 PLATFORM_API_KEY 是代码默认 sentinel（%s）；"
-            "生产环境必须覆盖，dev/测试环境可忽略",
-            api_key[:12] + "...",
+            "MCP_REQUIRE_AUTH=false：无鉴权模式公网部署必须配合 nginx IP rate limit"
+            "与必要的 IP 白名单；不要把 /mcp/ 暴露给公网非可信用户。"
         )
-    elif is_short_key:
-        logger.warning("⚠️ MCP 挂载但 PLATFORM_API_KEY 仅 %d 字节（建议 ≥32）", len(api_key))
     if not is_prod:
         logger.info("MCP 挂载于非生产环境 APP_ENV=%s（debug/开发模式）", settings.APP_ENV)
 
-    protected_prefixes = [
-        settings.MCP_SSE_PATH,       # GET  /mcp/sse  — 必须鉴权（握手）
-        "/mcp/manifest",             # GET  /mcp/manifest — 自检端点，鉴权防探测
-        # 注意：POST /mcp/messages 不在受保护列表中
-        # — MCP 协议设计：SSE 握手的 session_id（UUID v4，128 位熵）是后续
-        # 所有 POST 消息的唯一凭证；token 只在 GET 时校验一次（Bearer Header
-        # 或 URL queryParam，兼容 Aily 后台无法配 Header 的现实）。
-        # 等价于 OAuth2 bearer + session cookie 的安全模型：
-        # 任何能 GET 一次的人可以 POST 任意次，但这等价于「拿到 session 就
-        # 能用」，与 MCP SDK 官方示例、高德 MCP、各社区实现完全一致。
-        # 服务端通过 schema 校验 + 状态机闸门限制恶意调用的实际破坏面。
-    ]
+    if settings.MCP_REQUIRE_AUTH:
+        protected_prefixes = [
+            settings.MCP_SSE_PATH,       # GET  /mcp/sse  — 必须鉴权（握手）
+            "/mcp/manifest",             # GET  /mcp/manifest — 自检端点，鉴权防探测
+            # 注意：POST /mcp/messages 不在受保护列表中
+            # — MCP 协议设计：SSE 握手的 session_id（UUID v4，128 位熵）是后续
+            # 所有 POST 消息的唯一凭证；token 只在 GET 时校验一次（Bearer Header
+            # 或 URL queryParam）。
+            # 等价于 OAuth2 bearer + session cookie 的安全模型：
+            # 任何能 GET 一次的人可以 POST 任意次，但这等价于「拿到 session 就
+            # 能用」，与 MCP SDK 官方示例、高德 MCP、各社区实现完全一致。
+            # 服务端通过 schema 校验 + 状态机闸门限制恶意调用的实际破坏面。
+        ]
+    else:
+        # 无鉴权模式（MCP_REQUIRE_AUTH=false）：Aily 后台三字段限制下唯一可行的接入路径。
+        # 公网部署需在 nginx 侧加 IP rate limit 与 reverse proxy 网络层防护。
+        protected_prefixes = []  # 中间件仍挂载，但不再拦任何路径
+        logger.warning(
+            "⚠️ MCP_REQUIRE_AUTH=false：Aily 后台限制下启用无鉴权模式。"
+            "公网部署必须配置 nginx IP rate limit（建议 limit_req zone=... burst=20 nodelay）"
+            "与必要时的 IP 白名单。"
+        )
     app.add_middleware(_McpAuthMiddleware, protected_prefixes=protected_prefixes)
 
     subapp = _build_mcp_subapp()

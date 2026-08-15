@@ -275,3 +275,70 @@ def test_sse_endpoint_with_auth_streams_endpoint_event():
     assert statuses and statuses[0] == 200, f"SSE 响应 status 非 200：{events!r}（500 = ASGI 签名错）"
     headers = dict((t, v) for t, v in events if t == "headers")
     assert any("text/event-stream" in str(v).lower() for v in headers.values()), headers
+
+
+# === 7. MCP_REQUIRE_AUTH 开关（Aily 后台三字段限制下的唯一可行接入路径） ===
+
+def test_mcp_require_auth_false_skips_auth(monkeypatch):
+    """MCP_REQUIRE_AUTH=false 时 /mcp/sse 与 /mcp/manifest 都不要求 token。
+
+    现实：Aily 后台只能填 name+url+desc 三字段，无 Header 配置入口，且 URL
+    校验拒绝 queryParam。服务端必须支持无鉴权模式才能接入。
+    注：SSE 长连接会让 TestClient GET /mcp/sse 卡死，所以这个测试只断言
+    /mcp/manifest 可访问；SSE 路径走 test_mcp_no_auth_sse_builds_ok（直接调 handler）。
+    """
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from app.config import settings
+    from app.mcp_server import transport as mcp_transport
+
+    monkeypatch.setattr(settings, "MCP_REQUIRE_AUTH", False, raising=False)
+    monkeypatch.setattr(mcp_transport.settings, "MCP_REQUIRE_AUTH", False, raising=False)
+
+    app = FastAPI()
+    mcp_transport.mount_mcp(app)
+    client = TestClient(app)
+
+    # manifest 应放行（中间件不拦）
+    r = client.get("/mcp/manifest")
+    assert r.status_code == 200, f"无鉴权模式下 manifest 应可访问；得 {r.status_code}: {r.text}"
+    data = r.json()
+    assert data["server"]["name"] == "labmemory"
+    assert len(data["tools"]) == 10
+
+    # POST /messages 不在受保护列表里，无鉴权模式自然放行（中间件层不再拦）
+    r = client.post("/mcp/messages", json={"jsonrpc": "2.0", "method": "ping", "id": 1})
+    # SDK 对缺 session_id 返回 400（与有鉴权模式一致）
+    assert r.status_code == 400, f"SDK 应因缺 session_id 返回 400；得 {r.status_code}"
+
+
+def test_mcp_no_auth_sse_builds_ok(monkeypatch):
+    """MCP_REQUIRE_AUTH=false 时 _mcp_sse_handler 直接调应能 200（无任何 token）。"""
+    import asyncio
+    from app.config import settings
+    from app.mcp_server.transport import _mcp_sse_handler
+
+    # 中间件层的开关与 settings 同步；这里测的是 handler 本身能跑通 ASGI 三参签名
+    monkeypatch.setattr(settings, "MCP_REQUIRE_AUTH", False, raising=False)
+
+    events: list[tuple[str, object]] = []
+    disconnected = {"flag": False}
+
+    async def fake_receive():
+        if disconnected["flag"]:
+            return {"type": "http.disconnect"}
+        disconnected["flag"] = True
+        return {"type": "http.disconnect"}
+
+    async def fake_send(msg):
+        if msg.get("type") == "http.response.start":
+            events.append(("status", msg["status"]))
+            events.append(("headers", dict((k, v.decode("latin-1") if isinstance(v, (bytes, bytearray)) else v) for k, v in msg["headers"])))
+
+    scope = {
+        "type": "http", "method": "GET", "path": "/sse", "raw_path": b"/sse",
+        "headers": [], "query_string": b"", "scheme": "http", "server": ("t", 1),
+    }
+    asyncio.run(asyncio.wait_for(_mcp_sse_handler(scope, fake_receive, fake_send), timeout=4.0))
+    statuses = [v for t, v in events if t == "status"]
+    assert statuses and statuses[0] == 200, f"handler 应 200；得 {events!r}"
