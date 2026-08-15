@@ -4,6 +4,7 @@ Webhook 事件接收服务
 """
 import json
 import hmac
+import base64
 import hashlib
 import time
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -13,6 +14,13 @@ from core.config import Config
 from core.event_router import event_router
 from core.platform_action_handler import platform_action_handler
 from reliability.integration_log import integration_log
+
+# 飞书加密推送解密依赖（real 模式 + Encrypt Key 场景必需；缺失时收到加密请求会显式报错）
+try:
+    from Crypto.Cipher import AES
+    _AES_AVAILABLE = True
+except ImportError:
+    _AES_AVAILABLE = False
 
 
 # 签名时间窗（秒）：超出该窗口的请求视为重放，直接拒绝
@@ -62,6 +70,11 @@ class WebhookHandler(BaseHTTPRequestHandler):
             if body is None:
                 return
             data = json.loads(body)
+
+            # 飞书加密推送：body 为 {"encrypt": "<AES密文>"}，先解密取明文。
+            # 注意验签仍使用原始密文 body（飞书签名基于加密后的原始请求体）。
+            if isinstance(data, dict) and data.get("encrypt"):
+                data = decrypt_feishu_payload(Config.CARD_CALLBACK_ENCRYPT_KEY, data["encrypt"])
 
             # URL 验证（飞书事件订阅的验证挑战）
             if data.get("type") == "url_verification":
@@ -123,6 +136,10 @@ class WebhookHandler(BaseHTTPRequestHandler):
             if body is None:
                 return
             data = json.loads(body)
+
+            # 飞书加密推送：同 /webhook/event，先解密再处理
+            if isinstance(data, dict) and data.get("encrypt"):
+                data = decrypt_feishu_payload(Config.CARD_CALLBACK_ENCRYPT_KEY, data["encrypt"])
 
             # URL 验证
             if data.get("type") == "url_verification":
@@ -286,6 +303,27 @@ class WebhookHandler(BaseHTTPRequestHandler):
         """覆盖默认日志，使用我们的日志系统"""
         # 静默处理，避免污染 stdout
         pass
+
+
+def decrypt_feishu_payload(encrypt_key: str, encrypt_b64: str) -> dict:
+    """
+    解密飞书加密推送（官方算法，见开放平台文档「事件解密」）：
+    key = sha256(Encrypt Key)，AES-256-CBC，密文 base64 = 16 字节 IV + 加密数据，PKCS7 填充。
+
+    配置了 Encrypt Key 后，飞书推送的事件与 URL 校验（url_verification）均为
+    {"encrypt": "<base64>"} 密文形态，必须先解密才能取到 type/challenge/事件内容。
+    """
+    if not _AES_AVAILABLE:
+        raise RuntimeError("pycryptodome 未安装，无法解密飞书加密推送（pip install pycryptodome）")
+    if not encrypt_key:
+        raise ValueError("收到加密推送但 CARD_CALLBACK_ENCRYPT_KEY 未配置")
+
+    key = hashlib.sha256(encrypt_key.encode("utf-8")).digest()
+    raw = base64.b64decode(encrypt_b64)
+    iv, ciphertext = raw[:AES.block_size], raw[AES.block_size:]
+    padded = AES.new(key, AES.MODE_CBC, iv).decrypt(ciphertext)
+    plain = padded[:-padded[-1]]  # PKCS7 去填充
+    return json.loads(plain.decode("utf-8"))
 
 
 def verify_signature(

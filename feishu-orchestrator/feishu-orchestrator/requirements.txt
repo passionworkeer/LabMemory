@@ -1,3 +1,5 @@
 # LabMemory feishu-orchestrator runtime dependencies.
 # Requires Python >= 3.10.
 python-dotenv>=1.0.0
+# 飞书 Encrypt Key 加密推送的 AES 解密（open.feishu.cn 事件解密）
+pycryptodome>=3.19.0
