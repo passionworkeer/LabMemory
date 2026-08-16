@@ -314,7 +314,7 @@
 系统 SHALL 提供会话级 Q&A 生命周期接口，按 `user_id` 严格隔离：
 
 - `POST /api/qa/ask`：请求体接受可选 `session_id`（缺省时自动创建新会话）与可选 `session_title`（缺省时取首问前 30 字符）。响应 SHALL 返回 `session_id`、`session_title`、本轮 `message_id`。
-- `GET /api/qa/sessions?limit=&offset=&include_archived=`：返回当前用户未归档会话列表，按 `last_message_at` 倒序分页。
+- `GET /api/qa/sessions?limit=&offset=&include_archived=`：返回当前用户未归档会话列表，按 `last_message_at` 倒序分页。每项含 `message_count`；该计数 MUST 由单条聚合查询（`GROUP BY session_id`）一次取得，MUST NOT 对每个会话单独发 COUNT 查询（N+1）。
 - `GET /api/qa/sessions/{id}`：返回该会话基本信息及全部 `QAMessage`（按 `id` 升序）。
 - `PATCH /api/qa/sessions/{id}`：支持 `{title?, archived?}` 局部更新。
 - `DELETE /api/qa/sessions/{id}`：物理删除会话及其全部消息（`ON DELETE CASCADE`），不进入审计链。
@@ -350,6 +350,12 @@
 - GIVEN 会话 S1 有 8 条 QAMessage
 - WHEN DELETE `/api/qa/sessions/{S1.id}`
 - THEN 系统 SHALL 物理删除 S1 及其 8 条消息，返回 204；后续 GET `/api/qa/sessions/{S1.id}` SHALL 返回 404
+
+#### Scenario: 会话列表单次聚合计数
+
+- GIVEN 用户 u_pi 持有 20 个会话、共 200 条消息
+- WHEN GET `/api/qa/sessions?limit=20`
+- THEN 系统 SHALL 以不超过 2 条 SQL 完成列表与全部 `message_count`，响应结构与逐会话计数实现完全一致
 
 ### Requirement: 历史消息持久化与回放
 

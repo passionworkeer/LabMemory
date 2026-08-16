@@ -1,0 +1,16 @@
+[Unit]
+Description=LabMemory Platform (FastAPI uvicorn :8081)
+After=network.target
+
+[Service]
+Type=simple
+User=admin
+Group=admin
+WorkingDirectory=/home/admin/labmemory/labmemory-platform
+ExecStart=/home/admin/labmemory/.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8081
+Restart=always
+RestartSec=3
+# 崩溃自动拉起；日志收归 journald（journalctl -u labmemory-platform -f）
+
+[Install]
+WantedBy=multi-user.target

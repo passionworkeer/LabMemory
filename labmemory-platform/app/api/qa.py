@@ -84,13 +84,25 @@ def list_sessions(
         q = q.where(QASession.archived.is_(False))
     q = q.order_by(QASession.last_message_at.desc().nullslast(), QASession.id.desc()).limit(limit).offset(offset)
     sessions = db.execute(q).scalars().all()
-    out: list[QASessionOut] = []
-    for s in sessions:
-        cnt = db.scalar(
-            select(func.count(QAMessage.id)).where(QAMessage.session_id == s.id)
-        ) or 0
-        out.append(QASessionOut(id=s.id, title=s.title, archived=s.archived, last_message_at=s.last_message_at, message_count=int(cnt), created_at=s.created_at))
-    return out
+    # 单条聚合取各会话消息数，避免逐会话 COUNT（N+1）
+    counts: dict[int, int] = dict(
+        db.execute(
+            select(QAMessage.session_id, func.count(QAMessage.id)).where(
+                QAMessage.session_id.in_([s.id for s in sessions] or [0])
+            )
+        ).all()
+    )
+    return [
+        QASessionOut(
+            id=s.id,
+            title=s.title,
+            archived=s.archived,
+            last_message_at=s.last_message_at,
+            message_count=int(counts.get(s.id, 0)),
+            created_at=s.created_at,
+        )
+        for s in sessions
+    ]
 
 
 @router.get("/sessions/{session_id}", response_model=QASessionDetailOut)
