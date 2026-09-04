@@ -100,7 +100,7 @@
                 "text": { "tag": "plain_text", "content": "确认" },
                 "type": "primary_filled",
                 "icon": { "tag": "standard_icon", "token": "done_outlined" },
-                "behaviors": [ { "type": "callback", "value": { "decision": "confirm", "experiment_id": "EXP-DEMO-001" } } ]
+                "behaviors": [ { "type": "open_url", "default_url": "http://localhost:8081/login?experimentId=EXP-DEMO-001&action=confirm" } ]
               }
             ]
           },
@@ -114,7 +114,7 @@
                 "text": { "tag": "plain_text", "content": "修正" },
                 "type": "default",
                 "icon": { "tag": "standard_icon", "token": "edit_outlined" },
-                "behaviors": [ { "type": "callback", "value": { "decision": "revise", "experiment_id": "EXP-DEMO-001" } } ]
+                "behaviors": [ { "type": "open_url", "default_url": "http://localhost:8081/login?experimentId=EXP-DEMO-001&action=revise" } ]
               }
             ]
           },
@@ -128,11 +128,7 @@
                 "text": { "tag": "plain_text", "content": "驳回" },
                 "type": "danger",
                 "icon": { "tag": "standard_icon", "token": "close_outlined" },
-                "confirm": {
-                  "title": { "tag": "plain_text", "content": "确认驳回该候选决策？" },
-                  "text": { "tag": "plain_text", "content": "驳回后将记录原因并通知提交人。" }
-                },
-                "behaviors": [ { "type": "callback", "value": { "decision": "reject", "experiment_id": "EXP-DEMO-001" } } ]
+                "behaviors": [ { "type": "open_url", "default_url": "http://localhost:8081/login?experimentId=EXP-DEMO-001&action=reject" } ]
               }
             ]
           }
@@ -144,7 +140,7 @@
         "type": "default",
         "width": "fill",
         "icon": { "tag": "standard_icon", "token": "link-copy_outlined" },
-        "behaviors": [ { "type": "open_url", "default_url": "https://example.com/review/EXP-DEMO-001" } ]
+        "behaviors": [ { "type": "open_url", "default_url": "http://localhost:8081/login?experimentId=EXP-DEMO-001" } ]
       },
       {
         "tag": "markdown",

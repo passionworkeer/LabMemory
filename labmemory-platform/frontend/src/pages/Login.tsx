@@ -9,7 +9,11 @@ function decodeUserB64(raw: string): User | null {
   try {
     const b64 = raw.replace(/-/g, "+").replace(/_/g, "/");
     const padded = b64.padEnd(b64.length + ((4 - (b64.length % 4)) % 4), "=");
-    return JSON.parse(atob(padded));
+    const bin = atob(padded);
+    // atob 返回的是字节串（每个字符 = 1 字节），需按 UTF-8 正确还原，
+    // 否则中文显示名会变成 mojibake（é©å®®å®®）
+    const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+    return JSON.parse(new TextDecoder("utf-8").decode(bytes));
   } catch {
     return null;
   }

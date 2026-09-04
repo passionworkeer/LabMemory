@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import re
 import secrets
@@ -141,8 +142,12 @@ def feishu_callback(
         return RedirectResponse("/login?error=" + quote(f"登录失败：{exc}"), status_code=302)
     user = _get_or_create_user(db, profile)
     token = create_access_token(user.id, user.username, user.global_role)
+    # ensure_ascii=True：user JSON 转成纯 ASCII（\uXXXX），避免 base64 回调链路上的中文乱码
     user_b64 = base64.urlsafe_b64encode(
-        UserOut.model_validate(user, from_attributes=True).model_dump_json().encode("utf-8")
+        json.dumps(
+            UserOut.model_validate(user, from_attributes=True).model_dump(),
+            ensure_ascii=True,
+        ).encode("utf-8")
     ).decode("ascii")
     return RedirectResponse(f"/login?token={token}&user={user_b64}", status_code=302)
 

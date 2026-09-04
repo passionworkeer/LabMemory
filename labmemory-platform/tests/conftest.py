@@ -13,6 +13,7 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("PLATFORM_API_KEY", "dev-platform-api-key-please-rotate")
 os.environ.setdefault("JWT_SECRET", "test-jwt-secret-please-rotate-32chars-min")
 os.environ.setdefault("FEISHU_ORCHESTRATOR_MODE", "mock")
+os.environ.setdefault("FEISHU_OAUTH_MODE", "mock")  # 测试锁定 mock，避免受本地 .env real 影响
 os.environ.setdefault("LOG_LEVEL", "WARNING")
 
 # 让 tests/ 能 import app 与 scripts
