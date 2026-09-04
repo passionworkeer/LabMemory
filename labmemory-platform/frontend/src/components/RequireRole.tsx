@@ -42,3 +42,7 @@ export function RequirePI({ children }: { children: ReactNode }) {
 export function RequireLeadOrPI({ children }: { children: ReactNode }) {
   return <RequireRole roles={["pi", "lead", "admin"]}>{children}</RequireRole>;
 }
+
+export function RequireAdmin({ children }: { children: ReactNode }) {
+  return <RequireRole roles={["admin"]}>{children}</RequireRole>;
+}

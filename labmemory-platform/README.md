@@ -209,6 +209,22 @@ E2E 步骤覆盖：登录 -> 飞书推 MeetingPackage + CandidatePackage -> 修�
 
 ## 使用方式
 
+### 飞书 UUAP 免登登录（默认开启）
+
+平台支持通过飞书统一账号认证（UUAP，即飞书开放平台「网页应用」OAuth 2.0）直接登录：
+
+- **新用户自动注册**：飞书用户首次登录即自动注册为平台账号，默认最低权限角色
+  `viewer`（只读访客）——未分配实验成员时不可见任何实验数据。
+- **管理员可控可见范围**：管理员在「用户与权限」（`/admin/users`）调整每位用户的
+  全局角色（viewer/executor/lead/pi/admin），并通过**实验成员**精确控制其能看到的实验范围。
+- **两种模式**：
+  - `FEISHU_OAUTH_MODE=mock`（默认）：无需真实飞书凭据，登录页显示「模拟飞书登录」
+    表单，输入任意工号即可验证自动注册流程。
+  - `FEISHU_OAUTH_MODE=real`：在飞书开放平台创建自建应用，配置
+    `FEISHU_OAUTH_APP_ID` / `FEISHU_OAUTH_APP_SECRET`，并在「安全设置-重定向 URL」
+    登记 `FEISHU_OAUTH_REDIRECT_URI`。登录页跳转飞书授权 → 回调自动登录/注册。
+- 密码登录默认保留作为管理员/演示兜底（`PASSWORD_LOGIN_ENABLED=false` 可关闭）。
+
 ### 模拟飞书数据的三种方式
 
 #### 方式一：前端按钮（推荐演示用）
@@ -316,7 +332,8 @@ conda run -n labmemory python -m scripts.mock_feishu_push demo \
 
 | 路由 | 页面 | 说明 |
 |---|---|---|
-| `/login` | 登录 | 三角色账号登录 |
+| `/login` | 登录 | 飞书 UUAP / 模拟登录 / 密码兜底 |
+| `/admin/users` | 用户与权限（Admin） | UUAP 用户角色与可见实验范围管理 |
 | `/tower` | 研发控制塔 | KPI 指标 + 端到端闭环 + 需要处理项 + 演示数据重置按钮 |
 | `/review` | 会后复核列表 | 待处理/已处理/全部 三 tab，统计精确到当前显示数/总数 |
 | `/review/:meetingId` | 会后复核台 | 三值留痕 + 6 道闸门 + 结构化参数编辑 + 确认/结束 |
@@ -351,7 +368,14 @@ conda run -n labmemory python -m scripts.mock_feishu_push demo \
 
 | 接口 | 角色 | 用途 |
 |---|---|---|
-| `POST /api/auth/login` | 公开 | 登录获取 JWT |
+| `POST /api/auth/login` | 公开 | 密码登录获取 JWT（受 PASSWORD_LOGIN_ENABLED 控制） |
+| `GET /api/auth/feishu/authorize` | 公开 | 登录页初始化（返回登录方式 / 授权 URL） |
+| `GET /api/auth/feishu/callback` | 公开 | 飞书授权回调（换 token + 自动注册 + 跳转前端） |
+| `POST /api/auth/feishu/mock-login` | 公开(mock) | 模拟飞书免登（本地验证自动注册） |
+| `GET /api/admin/users` | Admin | 用户列表（角色 / 来源 / 可见实验） |
+| `PATCH /api/admin/users/{id}` | Admin | 调整用户全局角色 |
+| `POST /api/admin/users/{id}/members` | Admin | 添加实验成员（扩大可见范围） |
+| `DELETE /api/admin/users/{id}/members/{exp}` | Admin | 移除实验成员（收回可见范围） |
 | `GET /api/auth/me` | 三角色 | 当前用户信息 |
 | `GET /api/control-tower` | 三角色 | 控制塔聚合指标 |
 | `POST /api/admin/reset-demo?mode=` | PI/Admin | 演示数据重置（clear/pending/full） |
@@ -398,6 +422,12 @@ conda run -n labmemory python -m scripts.mock_feishu_push demo \
 | `CORS_ORIGINS` | `*` | CORS 白名单 |
 | `FEISHU_ORCHESTRATOR_BASE_URL` | `http://localhost:8080` | 飞书编排器地址 |
 | `FEISHU_ORCHESTRATOR_MODE` | `mock` | 飞书编排器模式（mock/real） |
+| `FEISHU_OAUTH_MODE` | `mock` | 飞书免登模式（mock/real） |
+| `FEISHU_OAUTH_APP_ID` | 空 | 飞书自建应用 App ID |
+| `FEISHU_OAUTH_APP_SECRET` | 空 | 飞书自建应用 App Secret |
+| `FEISHU_OAUTH_REDIRECT_URI` | `http://localhost:8081/api/auth/feishu/callback` | 授权回调（需在飞书开放平台登记） |
+| `UUAP_AUTO_REGISTER_ROLE` | `viewer` | 新用户自动注册默认角色（最低权限） |
+| `PASSWORD_LOGIN_ENABLED` | `true` | 是否保留密码登录 |
 
 > **注意**：`DATABASE_URL` 是相对路径 `sqlite:///./data/labmemory.db`，必须从项目根目录启动后端，否则会找不到数据库文件。
 

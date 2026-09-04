@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.api import admin as admin_api
 from app.api import auth as auth_api
+from app.api import user_admin as user_admin_api
 from app.api import brief as brief_api
 from app.api import control_tower as control_tower_api
 from app.api import experiments as experiments_api
@@ -82,6 +83,14 @@ def _run_migrations() -> None:
     from sqlalchemy import inspect, text
 
     insp = inspect(engine)
+
+    # UUAP 自动注册：users 表补充 source 列（seed / feishu_auto / manual）
+    if "users" in insp.get_table_names():
+        user_cols = {c["name"] for c in insp.get_columns("users")}
+        if "source" not in user_cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN source VARCHAR(32) DEFAULT 'seed' NOT NULL"))
+                logger.info("迁移：users 表新增列 source")
     if "tasks" not in insp.get_table_names():
         return
     existing = {c["name"] for c in insp.get_columns("tasks")}
@@ -233,6 +242,7 @@ def health_check(db: Session = Depends(get_db)):
 # === 路由 ===
 app.include_router(admin_api.router)
 app.include_router(auth_api.router)
+app.include_router(user_admin_api.router)
 app.include_router(control_tower_api.router)
 app.include_router(experiments_api.router)
 app.include_router(brief_api.router)

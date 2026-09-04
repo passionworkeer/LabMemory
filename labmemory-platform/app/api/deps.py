@@ -42,6 +42,13 @@ def require_pi_or_lead(user: User = Depends(get_current_user)) -> User:
     return user
 
 
+def require_admin(user: User = Depends(get_current_user)) -> User:
+    """仅全局管理员可访问（用户管理后台等）。"""
+    if user.global_role != "admin":
+        raise PermissionDeniedError("仅管理员可执行此操作")
+    return user
+
+
 def require_member(user: User = Depends(get_current_user)) -> User:
     """PI / Lead / Executor 三类角色均可。"""
     if user.global_role not in ("pi", "lead", "executor", "admin"):

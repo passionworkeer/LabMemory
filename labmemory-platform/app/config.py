@@ -46,6 +46,30 @@ class Settings(BaseSettings):
     FEISHU_ORCHESTRATOR_BASE_URL: str = "http://localhost:8080"
     FEISHU_ORCHESTRATOR_MODE: str = "mock"
 
+    # === 飞书 UUAP / OAuth 免登（网页应用登录）===
+    # 接入方式：飞书开放平台「网页应用」OAuth 2.0（UUAP 统一认证免登）。
+    # real 模式：需在飞书开放平台创建自建应用，拿到 App ID / App Secret，
+    #           并在「安全设置-重定向 URL」登记 FEISHU_OAUTH_REDIRECT_URI。
+    # mock 模式：无需真实凭据，走 /api/auth/feishu/mock-login 模拟免登（本地验证流程用）。
+    FEISHU_OAUTH_MODE: str = "mock"
+    # 飞书自建应用凭证（open.feishu.cn 开发者后台 → 凭证与基础信息）
+    FEISHU_OAUTH_APP_ID: str = ""
+    FEISHU_OAUTH_APP_SECRET: str = ""
+    # 授权后回调地址：必须在飞书开放平台「安全设置-重定向 URL」中登记
+    FEISHU_OAUTH_REDIRECT_URI: str = "http://localhost:8081/api/auth/feishu/callback"
+    # 授权页 / token / 用户信息端点（默认飞书公开域名，可按租户替换为 UUAP 内部域名）
+    FEISHU_OAUTH_AUTHORIZE_URL: str = "https://accounts.feishu.cn/open-apis/authen/v1/authorize"
+    FEISHU_OAUTH_TOKEN_URL: str = "https://open.feishu.cn/open-apis/authen/v2/oauth/token"
+    FEISHU_OAUTH_USERINFO_URL: str = "https://open.feishu.cn/open-apis/authen/v1/user_info"
+    # 授权申请的用户权限（最小集：读取用户基本信息）
+    FEISHU_OAUTH_SCOPE: str = "contact:user.base:readonly contact:user.employee:readonly"
+
+    # === UUAP 自动注册 ===
+    # 新飞书用户首次登录自动注册，默认最低权限角色：viewer（只读，无成员关系时不可见任何实验）。
+    UUAP_AUTO_REGISTER_ROLE: str = "viewer"
+    # 是否保留用户名密码登录（演示/管理员兜底）；false 时登录页仅提供飞书登录
+    PASSWORD_LOGIN_ENABLED: bool = True
+
     # === Aily 集成契约（/v1/* 入站 + 出站 webhook）===
     # 出站 webhook 目标地址（Aily 侧接收端点基址）；未开启时不真调
     AILY_WEBHOOK_BASE_URL: str = "http://localhost:9000"

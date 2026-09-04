@@ -8,6 +8,7 @@ const ROLE_LABEL: Record<string, string> = {
   pi: "项目负责人",
   lead: "实验负责人",
   executor: "执行人",
+  viewer: "只读访客",
   admin: "管理员",
 };
 
@@ -55,12 +56,21 @@ const IconPassport = () => (
     <path d="M7 18c1-2 3-3 5-3s4 1 5 3" />
   </svg>
 );
+const IconUsers = () => (
+  <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <circle cx="9" cy="8" r="3.2" />
+    <path d="M3.5 19c.6-3 2.9-4.5 5.5-4.5s4.9 1.5 5.5 4.5" />
+    <circle cx="17" cy="9" r="2.4" />
+    <path d="M15.5 14.7c2.2.3 4 1.6 4.6 4.3" />
+  </svg>
+);
 
 interface NavItem {
   to: string;
   label: string;
   icon: React.ComponentType;
   piOnly?: boolean;
+  adminOnly?: boolean;
   /** 命中即激活的路由第一段（一级菜单自身 + 其详情/子环节页） */
   segments: string[];
 }
@@ -96,6 +106,12 @@ const NAV_GROUPS: { label: string; items: NavItem[] }[] = [
       { to: "/qa", label: "可信问答", icon: IconQA, segments: ["qa"] },
     ],
   },
+  {
+    label: "系统管理",
+    items: [
+      { to: "/admin/users", label: "用户与权限", icon: IconUsers, adminOnly: true, segments: ["admin"] },
+    ],
+  },
 ];
 
 // 当前路径第一段命中菜单项声明的 segments 时，该菜单保持激活（含详情/子环节页）
@@ -129,6 +145,7 @@ export default function Layout() {
   if (!user) return <Loading />;
 
   const isPI = user.global_role === "pi" || user.global_role === "admin";
+  const isAdmin = user.global_role === "admin";
 
   return (
     <div className="grid h-screen" style={{ gridTemplateColumns: "240px minmax(0,1fr)" }}>
@@ -164,7 +181,9 @@ export default function Layout() {
         <nav className="flex flex-col gap-1 py-4 flex-1">
           <SidebarLink item={STANDALONE_ITEM} firstSegment={firstSegment} />
           {NAV_GROUPS.map((group) => {
-            const items = group.items.filter((n) => !n.piOnly || isPI);
+            const items = group.items.filter(
+              (n) => (!n.piOnly || isPI) && (!n.adminOnly || isAdmin)
+            );
             if (items.length === 0) return null;
             return (
               <div key={group.label} className="mt-4 flex flex-col gap-1">

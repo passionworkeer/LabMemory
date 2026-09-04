@@ -35,12 +35,55 @@ class UserOut(LabMemoryBase):
     display_name: str
     global_role: str
     feishu_user_id: str | None = None
+    # seed / feishu_auto / manual
+    source: str = "seed"
 
 
 class LoginOut(LabMemoryBase):
     access_token: str
     token_type: Literal["bearer"] = "bearer"
     user: UserOut
+
+
+# === 飞书 UUAP / OAuth 免登 ===
+
+class FeishuAuthorizeOut(LabMemoryBase):
+    """登录页初始化信息：决定展示飞书登录还是模拟登录/密码登录。"""
+    mode: str  # mock / real
+    # real 模式：飞书授权页完整 URL（前端跳转）；mock 模式为 None
+    authorize_url: str | None = None
+    mock_enabled: bool = False
+    password_login_enabled: bool = True
+
+
+class FeishuMockLoginIn(LabMemoryBase):
+    """mock 模式模拟免登：user_key 留空则后端生成随机用户。"""
+    user_key: str = ""
+    display_name: str | None = None
+
+
+# === 管理员用户管理（UUAP 自动注册用户范围控制）===
+
+class UserAdminOut(LabMemoryBase):
+    id: int
+    username: str
+    display_name: str
+    global_role: str
+    source: str
+    feishu_user_id: str | None = None
+    created_at: datetime
+    experiment_count: int = 0
+    members: list[ExperimentMemberOut] = []
+
+
+class UserRolePatchIn(LabMemoryBase):
+    global_role: Literal["viewer", "executor", "lead", "pi", "admin"]
+
+
+class UserMemberAddIn(LabMemoryBase):
+    experiment_id: str
+    # 实验级角色：viewer 只读；pi/lead/executor 对应业务权限
+    role: Literal["viewer", "executor", "lead", "pi"]
 
 
 # === Experiment management (PI only) ===
@@ -56,6 +99,8 @@ class ExperimentMemberOut(LabMemoryBase):
     username: str
     display_name: str
     role: str
+    # 用户管理场景填充（实验详情等场景可为 None）
+    experiment_id: str | None = None
 
     class Config:
         from_attributes = True

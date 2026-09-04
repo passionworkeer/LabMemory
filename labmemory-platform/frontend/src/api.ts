@@ -5,6 +5,7 @@ import type {
   ExperimentOut,
   ExperimentPassport,
   LoginOut,
+  FeishuAuthorizeOut,
   MeetingDetailOut,
   PassportSummaryOut,
   ProjectOut,
@@ -15,6 +16,8 @@ import type {
   ResultOut,
   TaskOut,
   User,
+  UserAdminOut,
+  UserRole,
 } from "./types";
 
 const TOKEN_KEY = "labmemory_token";
@@ -93,6 +96,16 @@ export const apiLogin = (username: string, password: string) =>
   });
 
 export const apiMe = () => request<User>("/api/auth/me");
+
+// === 飞书 UUAP 免登 ===
+export const apiFeishuAuthorize = () =>
+  request<FeishuAuthorizeOut>("/api/auth/feishu/authorize");
+
+export const apiFeishuMockLogin = (userKey: string, displayName?: string) =>
+  request<LoginOut>("/api/auth/feishu/mock-login", {
+    method: "POST",
+    body: JSON.stringify({ user_key: userKey, display_name: displayName }),
+  });
 
 // === Control Tower ===
 export const apiControlTower = () => request<ControlTowerOut>("/api/control-tower");
@@ -371,4 +384,24 @@ export const apiDeleteQASession = (id: number | string) =>
 export const apiResetDemo = (mode: "clear" | "pending" | "full") =>
   request<{ status: string; mode: string; message: string }>(`/api/admin/reset-demo?mode=${mode}`, {
     method: "POST",
+  });
+
+// === 管理员用户管理 ===
+export const apiListUsers = () => request<UserAdminOut[]>("/api/admin/users");
+
+export const apiPatchUserRole = (userId: number, globalRole: UserRole) =>
+  request<UserAdminOut>(`/api/admin/users/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ global_role: globalRole }),
+  });
+
+export const apiAddUserMember = (userId: number, experimentId: string, role: UserRole) =>
+  request<UserAdminOut>(`/api/admin/users/${userId}/members`, {
+    method: "POST",
+    body: JSON.stringify({ experiment_id: experimentId, role }),
+  });
+
+export const apiRemoveUserMember = (userId: number, experimentId: string) =>
+  request<UserAdminOut>(`/api/admin/users/${userId}/members/${experimentId}`, {
+    method: "DELETE",
   });

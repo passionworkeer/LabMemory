@@ -1,11 +1,14 @@
 // 后端 API 类型定义（与 app/schemas.py 对齐）
 
+export type UserRole = "viewer" | "executor" | "lead" | "pi" | "admin";
+
 export interface User {
   id: number;
   username: string;
   display_name: string;
-  global_role: "pi" | "lead" | "executor" | "admin";
+  global_role: UserRole;
   feishu_user_id?: string | null;
+  source?: string;
 }
 
 export interface LoginOut {
@@ -27,7 +30,8 @@ export interface ExperimentMemberOut {
   user_id: number;
   username: string;
   display_name: string;
-  role: "pi" | "lead" | "executor";
+  role: "viewer" | "executor" | "lead" | "pi";
+  experiment_id?: string | null;
 }
 
 export interface ExperimentOut {
@@ -340,4 +344,23 @@ export interface ApiError {
   code: string;
   message: string;
   details?: Record<string, unknown>;
+}
+
+export interface FeishuAuthorizeOut {
+  mode: "mock" | "real";
+  authorize_url?: string | null;
+  mock_enabled: boolean;
+  password_login_enabled: boolean;
+}
+
+export interface UserAdminOut {
+  id: number;
+  username: string;
+  display_name: string;
+  global_role: UserRole;
+  source: string;
+  feishu_user_id?: string | null;
+  created_at: string;
+  experiment_count: number;
+  members: ExperimentMemberOut[];
 }

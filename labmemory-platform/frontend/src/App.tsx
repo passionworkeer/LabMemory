@@ -3,7 +3,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./store";
 import Layout from "./components/Layout";
 import DialogHost from "./components/DialogHost";
-import { RequirePI } from "./components/RequireRole";
+import { RequireAdmin, RequirePI } from "./components/RequireRole";
 import Login from "./pages/Login";
 import ControlTower from "./pages/ControlTower";
 import PreMeetingBrief from "./pages/PreMeetingBrief";
@@ -15,6 +15,7 @@ import ActionAudit from "./pages/ActionAudit";
 import ResultBackflow from "./pages/ResultBackflow";
 import TrustedQA from "./pages/TrustedQA";
 import Experiments from "./pages/Experiments";
+import AdminUsers from "./pages/AdminUsers";
 import ReviewsList from "./pages/ReviewsList";
 import AuditList from "./pages/AuditList";
 import ResultList from "./pages/ResultList";
@@ -70,6 +71,16 @@ export default function App() {
             <RequirePI>
               <Experiments />
             </RequirePI>
+          }
+        />
+
+        {/* 系统管理（仅 Admin） */}
+        <Route
+          path="admin/users"
+          element={
+            <RequireAdmin>
+              <AdminUsers />
+            </RequireAdmin>
           }
         />
 

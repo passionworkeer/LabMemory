@@ -28,6 +28,8 @@ class User(Base, IDMixin, TimestampMixin):
     # 全局角色：admin / pi / lead / executor（仅用于平台登录的默认身份）
     # 业务权限以 ExperimentMember.role 为准（PI/Lead/Executor 三种）。
     global_role: Mapped[str] = mapped_column(String(32), default="executor", nullable=False)
+    # 用户来源：seed（演示种子）/ feishu_auto（UUAP 免登自动注册）/ manual
+    source: Mapped[str] = mapped_column(String(32), default="seed", nullable=False)
 
 
 class Project(Base, IDMixin, TimestampMixin):
