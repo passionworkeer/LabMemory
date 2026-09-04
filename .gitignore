@@ -74,3 +74,7 @@ labmemory-platform/frontend/*.log
 .gstack/
 .agents/
 /AGENTS.md
+
+# 内网穿透隧道运行时产物（域名随重连变化）
+/.tunnel-*.log
+/.tunnel-*.url

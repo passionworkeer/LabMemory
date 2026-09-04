@@ -1,0 +1,157 @@
+{
+  "schema": "2.0",
+  "config": {
+    "update_multi": true,
+    "width_mode": "default",
+    "summary": { "content": "待复核：新的候选决策（参数变更，置信度 87%）" }
+  },
+  "header": {
+    "title": { "tag": "plain_text", "content": "待复核：新的候选决策" },
+    "template": "wathet",
+    "icon": { "tag": "standard_icon", "token": "search_outlined", "color": "blue" },
+    "text_tag_list": [
+      { "tag": "text_tag", "text": { "tag": "plain_text", "content": "待复核" }, "color": "yellow" }
+    ]
+  },
+  "body": {
+    "direction": "vertical",
+    "padding": "12px 12px 20px 12px",
+    "vertical_spacing": "12px",
+    "elements": [
+      {
+        "tag": "interactive_container",
+        "background_style": "blue-50",
+        "corner_radius": "8px",
+        "padding": "8px 12px",
+        "elements": [
+          {
+            "tag": "column_set",
+            "flex_mode": "bisect",
+            "horizontal_spacing": "8px",
+            "columns": [
+              {
+                "tag": "column",
+                "width": "weighted",
+                "weight": 1,
+                "vertical_align": "center",
+                "elements": [
+                  { "tag": "markdown", "content": "<text_tag color='blue'>参数变更</text_tag>" }
+                ]
+              },
+              {
+                "tag": "column",
+                "width": "weighted",
+                "weight": 1,
+                "vertical_align": "center",
+                "elements": [
+                  { "tag": "markdown", "content": "置信度：**87%**", "text_align": "right" }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "interactive_container",
+        "has_border": true,
+        "border_color": "blue-100",
+        "corner_radius": "8px",
+        "padding": "12px",
+        "vertical_spacing": "4px",
+        "elements": [
+          { "tag": "markdown", "content": "**来源会议**：AI 材料研发 Workshop-第 3 期" },
+          { "tag": "markdown", "content": "**变更摘要**\n建议将反应温度由 70 ℃ 上调至 75 ℃；历史同条件下转化率由 68% 提升至 78%，相对提升约 6 个百分点。" }
+        ]
+      },
+      {
+        "tag": "interactive_container",
+        "has_border": true,
+        "border_color": "blue-100",
+        "corner_radius": "8px",
+        "padding": "12px",
+        "vertical_spacing": "4px",
+        "elements": [
+          { "tag": "markdown", "content": "**关联实验**：EXP-DEMO-001" },
+          { "tag": "markdown", "content": "**参数变更**\n- `temperature`：75 ℃（原 70 ℃）\n- `catalyst`：1.0 eq" }
+        ]
+      },
+      {
+        "tag": "interactive_container",
+        "background_style": "grey-50",
+        "corner_radius": "8px",
+        "padding": "12px",
+        "vertical_spacing": "4px",
+        "elements": [
+          { "tag": "markdown", "content": "**证据**\n历史批次 EXP-H-042：同条件 75 ℃ 下转化率稳定于 78% 附近；1.0 eq 催化剂水平下选择性无显著下降。" }
+        ]
+      },
+      {
+        "tag": "column_set",
+        "flex_mode": "trisect",
+        "horizontal_spacing": "8px",
+        "columns": [
+          {
+            "tag": "column",
+            "width": "weighted",
+            "weight": 1,
+            "elements": [
+              {
+                "tag": "button",
+                "text": { "tag": "plain_text", "content": "确认" },
+                "type": "primary_filled",
+                "icon": { "tag": "standard_icon", "token": "done_outlined" },
+                "behaviors": [ { "type": "callback", "value": { "decision": "confirm", "experiment_id": "EXP-DEMO-001" } } ]
+              }
+            ]
+          },
+          {
+            "tag": "column",
+            "width": "weighted",
+            "weight": 1,
+            "elements": [
+              {
+                "tag": "button",
+                "text": { "tag": "plain_text", "content": "修正" },
+                "type": "default",
+                "icon": { "tag": "standard_icon", "token": "edit_outlined" },
+                "behaviors": [ { "type": "callback", "value": { "decision": "revise", "experiment_id": "EXP-DEMO-001" } } ]
+              }
+            ]
+          },
+          {
+            "tag": "column",
+            "width": "weighted",
+            "weight": 1,
+            "elements": [
+              {
+                "tag": "button",
+                "text": { "tag": "plain_text", "content": "驳回" },
+                "type": "danger",
+                "icon": { "tag": "standard_icon", "token": "close_outlined" },
+                "confirm": {
+                  "title": { "tag": "plain_text", "content": "确认驳回该候选决策？" },
+                  "text": { "tag": "plain_text", "content": "驳回后将记录原因并通知提交人。" }
+                },
+                "behaviors": [ { "type": "callback", "value": { "decision": "reject", "experiment_id": "EXP-DEMO-001" } } ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "tag": "button",
+        "text": { "tag": "plain_text", "content": "查看完整复核台" },
+        "type": "default",
+        "width": "fill",
+        "icon": { "tag": "standard_icon", "token": "link-copy_outlined" },
+        "behaviors": [ { "type": "open_url", "default_url": "https://example.com/review/EXP-DEMO-001" } ]
+      },
+      {
+        "tag": "markdown",
+        "content": "<font color='grey'>样式样卡 · 以上为演示占位数据，正式发送时替换为真实候选决策内容</font>",
+        "text_size": "notation",
+        "text_align": "center"
+      }
+    ]
+  }
+}

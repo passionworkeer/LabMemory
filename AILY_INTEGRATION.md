@@ -12,7 +12,7 @@
 | 鉴权 | `Authorization: Bearer {PLATFORM_API_KEY}`（平台也兼容 `X-Platform-Api-Key`，二选一即可） |
 | Content-Type | `application/json`（请求/响应均 UTF-8） |
 | 测试 token | `dev-platform-api-key-please-rotate`（dev 沙箱；生产需换） |
-| 基址 | `https://cds-computation-rely-recommended.trycloudflare.com`（cloudflared 临时域名；本地 `http://127.0.0.1:8081`） |
+| 基址 | `https://efb806c6af660a.lhr.life`（localhost.run 临时域名，隧道重连即变，实时值见仓库根 `.tunnel-8081.url`；本地 `http://127.0.0.1:8081`） |
 | 文档 | `GET {base}/docs`（Swagger，含全部 `/v1/*`） |
 | 健康 | `GET {base}/health` |
 
