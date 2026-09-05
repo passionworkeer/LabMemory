@@ -1,9 +1,6 @@
 # LabMemory｜晶研智流
 
-> 嵌入飞书的可信实验决策与记忆系统
-> 把飞书会议中的科学讨论，编译为可审核、可版本化的实验决策——让每条参数有证据、每次执行用对版本、每个结果反向校正知识。
-
-> 📖 **快速了解项目当前功能、数据链路与使用方式**：见 [`PROJECT_GUIDE.md`](./PROJECT_GUIDE.md)。整合运维细节见 [`INTEGRATION.md`](./INTEGRATION.md)，对抗审查与卖点实现度见 [`AUDIT.md`](./AUDIT.md)。
+> **嵌入飞书的可信实验决策与记忆系统** — 把飞书会议中的科学讨论，编译为可审核、可版本化的实验决策。让每条参数有证据、每次执行用对版本、每个结果反向校正知识。
 
 ---
 
@@ -22,160 +19,196 @@
 
 ---
 
-## 1. 项目背景与问题定义
+## 1. 一句话现状
 
-晶泰已具备 AI、机器人工作站和实验室软件构成的自主实验闭环。新的效率瓶颈不是"有没有实验数据"，而是**会议中的科学判断，能否与实验编号、参数版本、原始结果、任务和责任人稳定对齐**。
-
-典型痛点：
-
-- 会后人工整理纪要耗时，且容易遗漏理由、适用范围和证据；
-- 执行时从旧文档/旧任务复制参数，可能继续使用已过期参数，系统无感知；
-- 失败经验无法复用，模型预测偏差未闭环；
-- AI 可能把"可以试试"误识别为最终参数，或错误关联实验编号；
-- 接口失败、证据失效、重复事件、版本错配可能被隐藏成"已完成"（静默失败）。
-
-**根因**：会议记录（长文本）与实验事实（对象 / 数值 / 单位 / 版本 / 责任）数据结构不同；知识状态过于粗糙（事实、建议、假设、待验证、部分支持、被替代混在一起）；版本与适用范围缺失；协作链路割裂；AI 输出缺少治理。
+两个子系统（**feishu-orchestrator** 飞书侧 + **labmemory-platform** 自研平台）已并入同一仓库，**两侧各自端到端跑通**，**正向跨侧联动已打通**（`scripts/cross_side_check` 5/5）。Aily 通过 MCP 通道直连平台的 10 个可信决策工具。详细实现度见 [`AUDIT.md`](./AUDIT.md)。
 
 ---
 
-## 2. 产品定位与四大支柱
-
-LabMemory **不重做会议摘要，也不替代 ELN/LIMS**，而是建立"会议判断 → 参数版本 → 实验执行 → 结果验证 → 知识复用"的**可信决策记忆层**。
+## 2. 五大支柱
 
 | 支柱 | 核心能力 | 用户价值 |
 |---|---|---|
-| 会议决策编译器 | 将妙记拆为参数候选、主张、争议、风险、任务和证据锚点 | 不再靠人工从长纪要里找"到底决定了什么" |
-| 可信实验记忆 | 以「主张—证据—版本—状态—适用范围—责任」管理知识生命周期 | 结论可追溯、可更新，旧版本不被静默覆盖 |
-| 实验护照 | 围绕实验编号统一展示会议、参数、任务、执行、结果、异常和知识 | 任一结果都能回到决策与原话，任一决策也能看到后续影响 |
-| 行动前审计 | 实验启动前检查版本、单位、证据、审批、资源和失败边界 | 在错误知识进入实验前阻断，而非事后复盘 |
+| **会议决策编译器** | 妙记 → 候选参数/主张/证据/风险/任务 | 不再靠人工从长纪要里找"到底决定了什么" |
+| **可信实验记忆** | 主张—证据—版本—状态—范围—责任六道闸门 | 结论可追溯、可更新，旧版本不静默覆盖 |
+| **实验护照** | 围绕实验编号统一展示会议/参数/任务/执行/结果 | 任一结果都能回到决策与原话 |
+| **行动前审计** | 实验启动前五项检查 → 通过/需确认/阻断三态 | 在错误知识进入实验前阻断，而非事后复盘 |
+| **可信决策内核** | 六道闸门 + 冲突检测 + 证据失效降级 + 三值留痕 + 5 态知识状态 | 卖点从 spec 落到代码（详见 [§6](#6-核心卖点实现度)） |
 
 ---
 
-## 3. 核心设计概念（评委看点）
+## 3. 文档地图
 
-- **三值留痕**：原始会议表达 / AI 候选值 / 人工确认值 分别保存，不静默覆盖。
-- **版本不覆盖**：新版本以 `replaces` 关系替代旧版本，历史记录永久保留、可追溯。
-- **六道质量闸门**：对象门 → 参数门 → 证据门 → 范围门 → 状态门 → 责任门。任一闸门失败都不得成为生效参数或正式任务。
-- **行动前审计三态**：`通过 / 需确认 / 阻断`，每项都有原因与建议动作；高风险默认阻断。
-- **非二元知识状态**：`支持 / 部分支持 / 推翻 / 替代 / 证据不足`，不使用简单的成功 / 失败。
-- **AI 与规则分工**：Aily 只做语义理解；编号、数值、版本、权限、幂等由确定性规则控制。
-- **异常可降级可恢复**：模型、接口或证据异常均有降级路径，不产生"虚假成功"。
+> **新人从这里进**：先看 [§4 快速开始](#4-快速开始)，再按角色查下表。
 
----
+### 3.1 按角色
 
-## 4. 总体架构与飞书分工
+| 我是… | 先看 |
+|---|---|
+| 评委 / 业务方 | [`参赛方案文档.md`](./参赛方案文档.md) → [`PROJECT_GUIDE.md`](./PROJECT_GUIDE.md) §2 |
+| 新加入的开发者 | [`PROJECT_GUIDE.md`](./PROJECT_GUIDE.md) → [`INTEGRATION.md`](./INTEGRATION.md) → [`docs/README.md`](./docs/README.md) |
+| 运维 / 部署 | [`docs/infrastructure/servers.md`](./docs/infrastructure/servers.md) → [`docs/operations/runbook.md`](./docs/operations/runbook.md) |
+| 飞书 / Aily 集成方 | [`AILY_INTEGRATION.md`](./AILY_INTEGRATION.md) → [`AILY_MCP.md`](./AILY_MCP.md) |
+| 安全 / 合规审核 | [`AUDIT.md`](./AUDIT.md) |
+| 规格作者 | [`CLAUDE.md`](./CLAUDE.md) → [`openspec/specs/`](./openspec/specs/) |
 
-产品形态 = **飞书内嵌入口 + 独立产品内核**（不是纯 Aily 工作流，也不是脱离飞书重建协作平台）。
+### 3.2 完整索引
 
-| 层级 | 组成 | 职责 |
-|---|---|---|
-| 飞书入口与协作层 | 会议/妙记、卡片、任务、文档、知识库、多维表格 | 入口、通知、快速确认、任务执行与知识协作 |
-| LabMemory 产品体验层 | 决策收件箱、实验护照、行动审计、结果回流、控制塔 | 表达复杂对象关系、版本差异、时间线与影响分析 |
-| AI 编译层 | Aily 工作流 / Skill API / Webhook | 从会议文本抽取候选对象、语义、证据、任务 |
-| 可信决策内核 | 领域服务、规则引擎、状态机、权限、审计、影响分析 | 决定候选能否发布、任务能否执行、结果如何更新知识 |
-| 数据与集成层 | PostgreSQL、事件队列、飞书 OpenAPI/SDK、CLI 适配器 | 事实源、幂等与补偿、同步飞书协作投影 |
-| 权威实验系统 | ELN/LIMS、仪器、机器人、物料 | 继续保存实验编号、原始记录、检测结果 |
+详见 [`docs/README.md`](./docs/README.md)。
 
-> 注意：当前租户**多维表格变更事件不可用**，正式状态流转只能经卡片 / 网页按钮触发，不能依赖用户改表。
+### 3.3 仓库根文档
 
----
-
-## 5. 团队分工与开发边界
-
-两个方向可独立开发、独立测试、独立验收，通过 `contracts` 接口契约联调。
-
-| 方向 | 负责人 | 负责 | 独立仓库 | 技术栈 |
-|---|---|---|---|---|
-| 飞书侧编排与 AI 接入 | 韩广宁 | 妙记/事件接入、Aily Skill 编译、卡片/任务/多维表格/知识发布、幂等重试 | `feishu-orchestrator` | Aily Skill + 飞书适配器 |
-| 自研平台与可信决策 | 林俊衡 | 前后端、DB、状态机、权限、行动审计、可靠性 | `labmemory-platform` | FastAPI + PostgreSQL |
-
-**接口契约**（放共享 `contracts/` 目录，版本化冻结，两边各自用 Mock 并行开发）：
-
-- `MeetingPackage`：飞书侧 → 平台（会议与逐字稿标准包）
-- `CandidatePackage`：Aily 编译结果 → 平台（结构化候选对象）
-- `FeishuActionRequest`：平台 → 飞书侧（发卡片 / 建任务 / 写表 / 发布文档）
-- `CardCallback`：飞书卡片按钮回调 → 平台
-
-> 边界原则：飞书侧回答"数据怎么进来、消息怎么出去、协作动作如何落地"；平台侧回答"对象是什么状态、是否允许生效、为什么阻断"。
+| 文件 | 用途 |
+|---|---|
+| [`PROJECT_GUIDE.md`](./PROJECT_GUIDE.md) | **当前态**：能做什么、数据怎么流、怎么用 |
+| [`INTEGRATION.md`](./INTEGRATION.md) | 整合运维、跨侧联动、契约路由、配置项、启动脚本 |
+| [`AUDIT.md`](./AUDIT.md) | 对抗性 + 第一性原理审查、Tier 1 已修、Tier 2 路线图 |
+| [`AILY_INTEGRATION.md`](./AILY_INTEGRATION.md) | 平台 ↔ Aily 接口口径（10 入站 + Webhook 出站） |
+| [`AILY_MCP.md`](./AILY_MCP.md) | MCP 接入指南、SSE 协议、鉴权、10 工具 |
+| [`参赛方案文档.md`](./参赛方案文档.md) | 完整参赛方案（产品/技术/团队/价值） |
+| [`CLAUDE.md`](./CLAUDE.md) | **强制开发规范**（OpenSpec 工作流） |
 
 ---
 
-## 6. 两个核心 Demo 故事（评测样例已备齐）
+## 4. 快速开始
 
-### Demo 1 — 旧参数拦截（行动前审计阻断）
-- `80℃ v1`（主张 C001 / 会议 M001）已被 `70℃ v2`（主张 C003 / 会议 M002）替代；
-- 证据：复现实验 EXP-0707-04 在 70℃ 收率 **78%**，EXP-0707-05 在 80℃ 收率 **72%**；适用范围均为 S1、0.20 mol/L、2h、催化剂 B；
-- 新成员从旧纪要创建 80℃ 任务时，行动前审计**阻断**，展示版本差异、证据包、影响范围，并支持**一键修正为 70℃** 后再创建飞书任务。
-
-### Demo 2 — 结果回流（非二元知识状态）
-- 65℃（主张 C007）使转化率由 63% 升至 **78%**，但副产物由 4% 升至 **9%**；
-- 系统将决策更新为 **「部分支持」**，生成失败边界卡（根因假设：高温与催化剂当量共同促进副反应，需显式标记"假设"），并创建 **降到 0.8 eq 复验**任务，而不是简单标记"成功"。
-
----
-
-## 7. 评测口径（诚实声明）
-
-> ⚠️ 以下指标**均来自脱敏模拟数据与评测样例，不得宣称为晶泰真实业务收益**。文档已要求主动说明未达标项的改进计划。
-
-| 指标 | 原型目标 | 样例结果 | 达标 |
-|---|---|---|---|
-| 实验要素抽取准确率 | ≥90% | 90% | ✅ |
-| 证据关联覆盖率 | ≥90% | 87.5% | ❌ 待改进 |
-| 冲突检测 Precision | ≥90% | 100% | ✅ |
-| 冲突检测 Recall | ≥85% | 80% | ❌ 待改进 |
-| 冲突检测 F1 | ≥0.87 | 0.89 | ✅ |
-| 过期参数拦截率 | ≥90% | 100% | ✅ |
-| 问答可追溯率 | 100% | 100% | ✅ |
-| 人工修改率 | ≤20% | 10% | ✅ |
-| 24h 知识发布率 | ≥90% | 92% | ✅ |
-| 人工整理时间降低 | ≥50% | 56% | ✅ |
-
-**当前缺口**：证据关联覆盖率（87.5%）与冲突召回率（80%）未达目标——Demo 与方案需主动说明改进计划，而非包装成满分。
-
----
-
-## 8. 里程碑（复赛交付）
-
-- **M1 技术 Spike**：真实妙记 → Aily JSON → 写入多维表格 → 卡片确认 → 创建飞书任务 全链路打通
-- **M2 产品闭环**：旧参数任务被规则阻断，一键修正后创建任务
-- **M3 结果闭环**：结果回流并更新为「部分支持」，生成失败边界与复验任务
-- **M4 可靠性**：至少演练一次接口失败、重复事件、版本错配
-- **M5 提交就绪**：公开沙盒可访问、真实联动视频可播放、文档与指标口径一致
-
----
-
-## 9. 仓库内容
-
-```
-.
-├── LabMemory晶研智流_PRD_V1.0.docx                  # 产品需求文档（核心）
-├── LabMemory_飞书侧编排与AI接入负责人工作说明.docx   # 飞书编排方向职责边界
-├── LabMemory_自研平台与可信决策系统负责人工作说明.docx # 平台方向职责边界
-├── 附件/
-│   ├── index.html                         # 海选演示版 HTML 原型（class=mock 纯演示，待接真实 API）
-│   ├── LabMemory晶研智流_开题报告补充材料.docx / .pdf
-│   ├── LabMemory模拟数据与评测样例.xlsx     # 13 张表：看板/转写/实验记录/主张卡/决策卡/失败卡/任务审计/冲突真值/评测指标/实验护照/异常队列/算法偏差
-│   └── 方案融合与团队分工说明.pdf
-└── 附件.zip                                # 上述附件打包
-```
-
-**已有 vs 待开发**：
-- ✅ PRD、两份角色说明、模拟数据与评测样例、HTML 海选演示原型
-- 🚧 真实 Aily Skill、状态机 / 六道闸门、行动审计、飞书真实联动、Docker 一键启动、两套 Demo 数据 seed
-
-> 📌 整合后的运行说明、端到端验证证据、整合缺口与 B 计划见 [`INTEGRATION.md`](./INTEGRATION.md)。
-
----
-
-## 10. 本地开发约定
+### 4.1 三分钟跑起来（本地开发）
 
 ```bash
-# 当前工作区已是 git 仓库（分支 main，跟踪 origin）
-git add -A
-git commit -m "提交说明"
-git push
+# 1. 装后端依赖
+pip install -r labmemory-platform/requirements.txt
+
+# 2. 构建前端
+cd labmemory-platform/frontend && npm install && npm run build && cd -
+
+# 3. 起平台（默认 :8081，SQLite 落本地 data/）
+cd labmemory-platform
+mkdir -p data
+python -m uvicorn app.main:app --port 8081 --host 127.0.0.1
+
+# 4. 注入演示账号 + 项目 + 实验 + 端到端场景
+python -m scripts.seed_demo
+
+# 5. 推 4 个演示会议（可选）
+python -m scripts.mock_feishu_push demo
 ```
 
-- 接口契约冻结后，飞书编排与平台两侧可各自用 Mock 并行开发。
-- 所有实验、人物、结果、收益均标注为脱敏模拟或实测原型数据，不得冒充真实企业收益。
-- 演示采用双模式：真实飞书联动视频 + 评委脱敏沙盒回放。
+访问：
+- 前端 UI：http://localhost:8081
+- Swagger：http://localhost:8081/docs
+- 健康：http://localhost:8081/health
+
+演示账号（密码 `123456`）：`pi` / `lead` / `executor` / `admin`
+
+### 4.2 飞书侧编排（默认 Mock 模式，无需真凭证）
+
+```bash
+cd feishu-orchestrator/feishu-orchestrator
+pip install -r requirements.txt
+python scripts/run_pipeline.py --demo    # 端到端 demo
+python -m core.webhook_server            # 起 webhook 服务（:8080）
+```
+
+### 4.3 跑测试
+
+```bash
+cd labmemory-platform && pytest -q                          # 平台 e2e
+cd feishu-orchestrator/feishu-orchestrator && bash scripts/cross_side_check.sh   # 跨侧 5/5
+```
+
+详细配置项见 [`INTEGRATION.md`](./INTEGRATION.md) §2.3。
+
+---
+
+## 5. 架构与系统链路
+
+```
+飞书会议/妙记
+     │
+     ▼
+┌──────────────────────────────┐
+│  feishu-orchestrator (8080)  │   飞书侧编排与 AI 接入
+│  · 妙记/事件接入 + 验签       │   负责人：韩广宁
+│  · Aily Skill 编译 + 校验    │
+│  · 卡片/任务/多维表格/知识库   │
+│  · 幂等(原子文件锁)+重试(分类) │
+└──────────────┬───────────────┘
+               │  契约（openspec/specs/contracts/）
+               │  POST /api/v1/meetings | candidates | card/callback | task/status
+               ▼
+┌──────────────────────────────┐
+│  labmemory-platform (8081)   │   自研可信决策平台
+│  FastAPI + React + SQLite    │   负责人：林俊衡
+│  · 会后复核 → 主张/版本      │
+│  · 行动前审计（六道闸门）     │
+│  · 任务执行 + 结果回流        │
+│  · 知识发布 + 实验护照        │
+└──────────────┬───────────────┘
+               │  MCP SSE (10 tools) ─────► Aily 后台
+               │  Webhook ◄──────────────── Aily 推回
+               ▼
+         反向（平台 → 飞书侧卡片/任务）：当前 mock，待真凭证
+```
+
+详细架构与两个 Demo 故事见 [`PROJECT_GUIDE.md`](./PROJECT_GUIDE.md) §3。
+
+---
+
+## 6. 核心卖点实现度
+
+> **TL;DR**：六道闸门、语义栅栏、冲突检测、知识状态 5 态、证据失效降级、三值留痕、按参数维度版本化——**全部落地**。详见 [`AUDIT.md`](./AUDIT.md) §3 与 [`PROJECT_GUIDE.md`](./PROJECT_GUIDE.md) §2。
+
+| 卖点 | 状态 | 实现 |
+|---|---|---|
+| 三值留痕（含 reason） | ✅ | `MeetingReview.modifications` |
+| 版本不覆盖（按参数维度） | ✅ | `Claim.replaces_claim_id` + superseded |
+| 六道闸门（候选→主张） | ✅ | `app/services/trust_rules.py` |
+| 行动前审计三态 | ✅ | `_run_checks` |
+| 非二元知识状态 5 态 | ✅ | supported / partially_supported / refuted / replaced / insufficient_evidence |
+| 语义栅栏（"可以试试"不生效） | ✅ | "可以试试/建议/可能/暂定" 关键词拒收 |
+| 冲突检测（数值冲突冻结 + 6 类复用） | ✅ | 闸门/审计复用 |
+| 证据失效降级 | ✅ | 结构化校验 + 问答排除 + 发布守卫 |
+| 异常可降级不虚假成功 | ✅ | pipeline 返回 `submitted`，失败发告警卡 |
+
+**仍待 Tier 2**：详情见 [`AUDIT.md`](./AUDIT.md) §3（10 条 P0/P1 缺失功能，需产品规则定义后另起 change）。
+
+---
+
+## 7. 生产服务器现状
+
+**生产环境**：阿里云 Ubuntu-lrtz（<SERVER_IP>，Ubuntu 24.04，2 核 / 2 GiB / 40 GiB，域名 `<your-domain.com>`）
+
+| 项 | 状态 |
+|---|---|
+| 平台服务 `labmemory-platform.service` | ✅ running（4 天 9 小时） |
+| Nginx 80/443 | ⚠️ **443 证书加载失败**（admin 无权读 `/etc/letsencrypt/`，详见 [`docs/infrastructure/servers.md`](./docs/infrastructure/servers.md) §6.1） |
+| 数据库每日备份 | ✅ 7 份在线备份保留 |
+| 飞书编排服务 `:8080` | ❌ **未拉起** |
+| 服务器 .git | ❌ 当前无 .git，部署走手工 rsync |
+
+**下一步建议（按优先级）**：
+1. 修 HTTPS 证书加载（影响 Aily 接入 + 飞书 webhook）
+2. 服务器加 .git + deploy key，改走 git pull 部署
+3. 拉起 feishu-orchestrator（按需）
+4. 加自动告警（备份/磁盘/进程）
+
+完整现状 + 应急 SOP 见 [`docs/infrastructure/servers.md`](./docs/infrastructure/servers.md) 与 [`docs/operations/runbook.md`](./docs/operations/runbook.md)。
+
+---
+
+## 8. 仓库约定
+
+- **OpenSpec 强制**：任何影响系统行为的变更，必须先创建 OpenSpec change（`openspec/changes/`），通过 `openspec validate` 再写代码。详见 [`CLAUDE.md`](./CLAUDE.md)。
+- **接口契约优先**：涉及 `openspec/specs/contracts/` 的变更，先冻结契约再并行开发。
+- **数据口径诚实**：文档与评测中涉及指标时，必须标注"脱敏模拟/原型样例"，不得冒充真实企业收益。
+- **保密**：本仓库为私有；规格中不得写入真实妙记、Token、受限文档等内容。
+
+---
+
+## 9. 关联文档
+
+- 完整文档索引：[`docs/README.md`](./docs/README.md)
+- 部署 checklist：[`docs/infrastructure/deployment.md`](./docs/infrastructure/deployment.md)
+- 运维 runbook：[`docs/operations/runbook.md`](./docs/operations/runbook.md)
+- 服务器档案：[`docs/infrastructure/servers.md`](./docs/infrastructure/servers.md)
+- 子模块：[`labmemory-platform/`](./labmemory-platform/) · [`feishu-orchestrator/`](./feishu-orchestrator/)
