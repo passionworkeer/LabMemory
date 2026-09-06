@@ -45,28 +45,37 @@
 |---|---|
 | [`operations/runbook.md`](operations/runbook.md) | 备份策略、健康检查、故障应急、证书续期、SSH 凭据 |
 
-### 2.3 `aily-skill/` — Aily 技能
+### 2.3 Aily 技能（新旧 skill）
+
+**新 skill（v1.0.8，当前主版本）**——位于仓库根：
+
 | 文件 | 用途 |
 |---|---|
-| [`aily-skill/skill-prompt.md`](aily-skill/skill-prompt.md) | Aily Skill 提示词（让 Aily 学会调用平台 10 个工具） |
-| [`aily-skill/webhook-payload.md`](aily-skill/webhook-payload.md) | Webhook 出站 payload 契约 |
-| [`aily-skill/tools-manifest.json`](aily-skill/tools-manifest.json) | MCP 工具清单（自检用） |
+| [`../LabMemory 决策记忆/labmemory-decision-memory/SKILL.md`](../LabMemory%20%E5%86%B3%E7%AD%96%E8%AE%B0%E5%BF%86/labmemory-decision-memory/SKILL.md) | **新 skill 包**：首次接入引导 + 10 步闭环 + 5 类卡片模板 + 状态轮询 + 16 条实战踩坑 |
+
+**旧版（已被替代，仅作历史参考）**——`aily-skill/`：
+
+| 文件 | 用途 |
+|---|---|
+| [`aily-skill/skill-prompt.md`](aily-skill/skill-prompt.md) | ⚠️ 旧版 Aily Skill 提示词（顶部有 banner 标注已被新版本替代） |
+| [`aily-skill/webhook-payload.md`](aily-skill/webhook-payload.md) | Webhook 出站 payload 契约（备用通道，payload 定义仍准确） |
+| [`aily-skill/tools-manifest.json`](aily-skill/tools-manifest.json) | MCP 工具清单（自检用，10 工具 schema 仍准确） |
 
 ### 2.4 平台 API
 | 文件 | 用途 |
 |---|---|
-| [`api-meetings-integration.md`](api-meetings-integration.md) | 飞书会议集成（事件订阅、妙记拉取、回调路由） |
+| [`api-meetings-integration.md`](api-meetings-integration.md) | ⚠️ 机器鉴权 REST `/api/v1/*` 接口（备用通道，服务器实测版） |
 | [`platform-intake-api.md`](platform-intake-api.md) | 平台 intake 接口（会议/候选/复核/任务/结果完整字段） |
 
 ---
 
 ## 3. 子模块文档
 
-### 3.1 飞书编排子系统
+### 3.1 飞书编排子系统（备用路径）
 | 文件 | 用途 |
 |---|---|
-| [`../feishu-orchestrator/feishu-orchestrator/README.md`](../feishu-orchestrator/feishu-orchestrator/README.md) | 子系统导览（架构、运行模式、可靠性） |
-| [`../feishu-orchestrator/feishu-orchestrator/DEPLOYMENT.md`](../feishu-orchestrator/feishu-orchestrator/DEPLOYMENT.md) | 飞书 CLI 配置、Real/Mock 模式、部署步骤 |
+| [`../feishu-orchestrator/feishu-orchestrator/README.md`](../feishu-orchestrator/feishu-orchestrator/README.md) | 子系统导览（⚠️ 备用路径，顶部有 banner） |
+| [`../feishu-orchestrator/feishu-orchestrator/DEPLOYMENT.md`](../feishu-orchestrator/feishu-orchestrator/DEPLOYMENT.md) | 飞书 CLI 配置、Real/Mock 模式、部署步骤（⚠️ 备用路径） |
 
 ### 3.2 自研平台子系统
 | 文件 | 用途 |

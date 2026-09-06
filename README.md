@@ -144,11 +144,18 @@ cd feishu-orchestrator/feishu-orchestrator && bash scripts/cross_side_check.sh  
 │  · 任务执行 + 结果回流        │
 │  · 知识发布 + 实验护照        │
 └──────────────┬───────────────┘
-               │  MCP SSE (10 tools) ─────► Aily 后台
-               │  Webhook ◄──────────────── Aily 推回
+               │  MCP SSE (10 tools) ─────► Aily 后台(主路径)
+               │  Webhook ◄──────────────── 备用通道(新架构不依赖)
                ▼
-         反向（平台 → 飞书侧卡片/任务）：当前 mock，待真凭证
+         飞书卡片推送:Aily 主动发卡(最后一公里),不依赖平台 webhook
 ```
+
+> **新主路径说明**：飞书侧走"Aily agent + MCP"直连平台 ——
+> Aily 通过 `aily-mcp install-remote` 自助接入平台 MCP,事件自动化触发 10 步闭环,
+> 5 类卡片由 Aily 用 `lark-cli im +messages-send --as bot` 主动发送。
+> 平台 webhook 协议仍在(平台能力未删除),但新架构**不依赖** webhook 推回。
+> 详细流程见新 skill [`LabMemory 决策记忆/labmemory-decision-memory/SKILL.md`](./LabMemory%20决策记忆/labmemory-decision-memory/SKILL.md)
+> 与 [`AILY_INTEGRATION.md`](./AILY_INTEGRATION.md)。
 
 详细架构与两个 Demo 故事见 [`PROJECT_GUIDE.md`](./PROJECT_GUIDE.md) §3。
 
@@ -183,13 +190,13 @@ cd feishu-orchestrator/feishu-orchestrator && bash scripts/cross_side_check.sh  
 | 平台服务 `labmemory-platform.service` | ✅ running（4 天 9 小时） |
 | Nginx 80/443 | ⚠️ **443 证书加载失败**（admin 无权读 `/etc/letsencrypt/`，详见 [`docs/infrastructure/servers.md`](./docs/infrastructure/servers.md) §6.1） |
 | 数据库每日备份 | ✅ 7 份在线备份保留 |
-| 飞书编排服务 `:8080` | ❌ **未拉起** |
+| ~~飞书编排服务 `:8080`~~ | n/a — **新架构不依赖** :8080 编排器（飞书侧走 Aily agent + MCP 直连平台） |
 | 服务器 .git | ❌ 当前无 .git，部署走手工 rsync |
 
 **下一步建议（按优先级）**：
 1. 修 HTTPS 证书加载（影响 Aily 接入 + 飞书 webhook）
 2. 服务器加 .git + deploy key，改走 git pull 部署
-3. 拉起 feishu-orchestrator（按需）
+3. （可选）按需拉起 feishu-orchestrator（备用路径，详见 [`feishu-orchestrator/feishu-orchestrator/README.md`](./feishu-orchestrator/feishu-orchestrator/README.md)）
 4. 加自动告警（备份/磁盘/进程）
 
 完整现状 + 应急 SOP 见 [`docs/infrastructure/servers.md`](./docs/infrastructure/servers.md) 与 [`docs/operations/runbook.md`](./docs/operations/runbook.md)。

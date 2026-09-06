@@ -103,11 +103,18 @@ sudo systemctl status labmemory-platform
 curl -fsS http://127.0.0.1:8081/health
 ```
 
-### 2.4 飞书侧（real 模式才需要）
+### 2.4 飞书编排服务（备用路径，新主路径不依赖）
+
+> **⚠️ 新主路径不依赖本服务**。飞书侧接入已切换为"Aily agent + MCP 直连平台"——
+> 详见新 skill [`LabMemory 决策记忆/labmemory-decision-memory/SKILL.md`](../../LabMemory%20%E5%86%B3%E7%AD%96%E8%AE%B0%E5%BF%86/labmemory-decision-memory/SKILL.md)。
+>
+> 本节保留作为**备用路径**说明（mock 演示 / 历史 fallback）。
+> **生产环境无需拉起 :8080**。
+
 ```bash
 cd /home/admin/labmemory/feishu-orchestrator/feishu-orchestrator
 source ../../.venv/bin/activate
-# 用 pm2 或 systemd 拉起 webhook_server
+# 用 pm2 或 systemd 拉起 webhook_server（仅当需要 mock 演示或真飞书实时联动）
 pm2 start "python -m core.webhook_server" --name feishu-orchestrator
 pm2 save
 

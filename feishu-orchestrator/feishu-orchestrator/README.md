@@ -1,5 +1,17 @@
 # LabMemory 飞书编排与 AI 接入子系统
 
+> ⚠️ **本子系统为「备用路径」**。新主路径是 **Aily agent + MCP `/mcp/sse`**——
+> Aily 通过 `aily-mcp install-remote` 自助接入平台,事件自动化触发 10 步闭环,
+> 5 类卡片由 Aily 主动发送。
+>
+> 完整接入流程见 [`AILY_INTEGRATION.md`](../../AILY_INTEGRATION.md) 与新 skill
+> [`LabMemory 决策记忆/labmemory-decision-memory/SKILL.md`](../../LabMemory%20%E5%86%B3%E7%AD%96%E8%AE%B0%E5%BF%86/labmemory-decision-memory/SKILL.md)。
+>
+> 本子系统的**代码与 mock 演示仍可用**(mock 模式无需真飞书凭证),作为历史 fallback 与 mock 演示保留。
+> **生产环境无需拉起 :8080 服务**——新架构下飞书侧由 Aily 直接接管。
+>
+> ---
+>
 > 负责把妙记、Aily、多维表格、交互卡片、任务和知识发布串成稳定链路，向自研 LabMemory 平台提供统一标准接口。
 
 ## 规格来源

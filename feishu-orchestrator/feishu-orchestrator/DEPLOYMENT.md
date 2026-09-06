@@ -1,5 +1,16 @@
 # 部署指南
 
+> ⚠️ **本子系统为「备用路径」,新主路径不依赖 :8080 服务。**
+>
+> 飞书侧接入已切换为 **Aily agent + MCP `/mcp/sse`**(Aily 自助接入平台,
+> 事件自动化触发 10 步闭环,5 类卡片由 Aily 主动发)。
+>
+> 完整接入流程见 [`AILY_INTEGRATION.md`](../../AILY_INTEGRATION.md) 与新 skill
+> [`LabMemory 决策记忆/labmemory-decision-memory/SKILL.md`](../../LabMemory%20%E5%86%B3%E7%AD%96%E8%AE%B0%E5%BF%86/labmemory-decision-memory/SKILL.md)。
+>
+> 本部署指南保留作为 mock 演示 / 历史 fallback 的参考——代码与 mock 模式仍可用。
+> **生产环境无需按本文部署 :8080 服务**。
+
 ## 目录
 
 - [系统要求](#系统要求)

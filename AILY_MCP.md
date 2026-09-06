@@ -5,10 +5,13 @@
 > 暴露的 10 个可信决策工具。
 >
 > **Aily 侧只做两件事**：
-> 1. 把本目录的 [`skill-prompt.md`](./aily-skill/skill-prompt.md) 配成 Aily 技能（Skill）；
+> 1. 把新 skill [`LabMemory 决策记忆/labmemory-decision-memory/SKILL.md`](./LabMemory%20决策记忆/labmemory-decision-memory/SKILL.md)（v1.0.8）配成 Aily 技能；
 > 2. 把 MCP Server 地址（含 `PLATFORM_API_KEY`）配到 Aily 的 MCP 接入页。
 >
-> **LabMemory 侧已完成**：SSE 暴露 10 个工具 + Bearer 鉴权 + Aily 出口 IP 白名单 + Webhook 推回。
+> 旧版 skill `docs/aily-skill/skill-prompt.md` **已被新版本替代**（顶部有 banner 标注），
+> 仅作历史参考保留。
+>
+> **LabMemory 侧已完成**：SSE 暴露 10 个工具 + Bearer 鉴权 + Aily 出口 IP 白名单 + Webhook 推回（备用通道）。
 
 ## 1. 协议与传输
 

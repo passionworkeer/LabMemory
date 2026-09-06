@@ -70,10 +70,12 @@
 ### T2-9（P2）：告警卡片接线 + pipeline 诚实 status
 - **当前**：`im_card_adapter.send_alert_card` 无调用方；retry 耗尽只静默置 FAILED；pipeline 返回 `status:"success"+completed_at`（实际是 SUBMITTED/REVIEWING）。
 - **建议 change**：`wire-alert-card-and-honest-pipeline-status`。
+- **状态**:✅ 已归档(`add-alert-realrules-specalign`/`2026-08-14-fix-orchestrator-reliability`,见 §5)
 
 ### T2-10（P2）：real 路径确定性规则
 - **当前**：`_extract_experiment_ref` + 数值范围 + 版本校验只在 `_mock_compile` 调用；real Aily 输出直接采信。
 - **建议 change**：`apply-deterministic-rules-in-real-aily-path`。
+- **状态**:✅ 已归档(`add-alert-realrules-specalign`,real/mock 共用确定性校验,见 §5)
 
 ---
 

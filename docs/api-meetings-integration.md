@@ -1,7 +1,15 @@
 # LabMemory 平台接口文档 — meetings / integration（服务器实测版）
 
+> ⚠️ **本文件为「机器鉴权 REST 接口」技术细节（备用通道）**。
+>
+> 新主路径是 **MCP `/mcp/sse` 10 个 `labmemory_*` 工具**（Aily 直连平台），
+> 完整接入流程见 [`AILY_INTEGRATION.md`](../AILY_INTEGRATION.md) 与新 skill
+> [`LabMemory 决策记忆/labmemory-decision-memory/SKILL.md`](../LabMemory%20%E5%86%B3%E7%AD%96%E8%AE%B0%E5%BF%86/labmemory-decision-memory/SKILL.md)。
+>
+> 本文档保留作为 `/api/v1/*` REST 接口的实测参考——历史编排器(`feishu-orchestrator`:8080)使用此契约,
+> 平台代码层(`/app/api/integration.py`)实现完整、契约稳定。
+>
 > 基于生产服务器 `https://<your-domain.com>`（阿里云 <SERVER_IP>，2026-08-15）逐端点实测编写。
-> 所有端点 **已确认开放**，鉴权、状态码、响应结构均为实测结果。
 >
 > 源码位置：`labmemory-platform/app/api/meetings.py`、`labmemory-platform/app/api/integration.py`
 

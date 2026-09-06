@@ -420,8 +420,8 @@ conda run -n labmemory python -m scripts.mock_feishu_push demo \
 | `SERVER_PORT` | `8081` | 服务端口 |
 | `LOG_LEVEL` | `INFO` | 日志级别 |
 | `CORS_ORIGINS` | `*` | CORS 白名单 |
-| `FEISHU_ORCHESTRATOR_BASE_URL` | `http://localhost:8080` | 飞书编排器地址 |
-| `FEISHU_ORCHESTRATOR_MODE` | `mock` | 飞书编排器模式（mock/real） |
+| `FEISHU_ORCHESTRATOR_BASE_URL` | `http://localhost:8080` | **备用**：飞书编排器地址（新主路径走 Aily + MCP，本配置仅历史 fallback） |
+| `FEISHU_ORCHESTRATOR_MODE` | `mock` | **备用**：飞书编排器模式（新主路径不依赖） |
 | `FEISHU_OAUTH_MODE` | `mock` | 飞书免登模式（mock/real） |
 | `FEISHU_OAUTH_APP_ID` | 空 | 飞书自建应用 App ID |
 | `FEISHU_OAUTH_APP_SECRET` | 空 | 飞书自建应用 App Secret |

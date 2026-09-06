@@ -2,45 +2,63 @@
 
 > 本文件是飞书编排子系统（`feishu-orchestrator`）与自研平台子系统（`labmemory-platform`）合并到同一仓库后的**整合运维与技术说明**，面向团队与评委。
 > 项目全貌见 [`README.md`](./README.md)；开发规范见 [`CLAUDE.md`](./CLAUDE.md)；接口契约见 [`openspec/specs/contracts/spec.md`](./openspec/specs/contracts/spec.md)。
+>
+> **架构说明**：飞书侧接入已切换为 **Aily agent + MCP `/mcp/sse`** 主路径。
+> `feishu-orchestrator` 子系统作为**备用路径**(mock 演示 + 历史 fallback)保留，
+> 完整接入流程见 [`AILY_INTEGRATION.md`](./AILY_INTEGRATION.md) 与新 skill
+> [`LabMemory 决策记忆/labmemory-decision-memory/SKILL.md`](./LabMemory%20%E5%86%B3%E7%AD%96%E8%AE%B0%E5%BF%86/labmemory-decision-memory/SKILL.md)。
 
 ---
 
 ## 0. 一句话现状
 
-两个子系统已并入同一仓库、**两侧各自端到端跑通**（平台 17 步决策全链路 + pytest、编排器 22 个集成测试 + 11 项体检，全部绿）；**正向跨侧联动已打通**（平台已拉回契约合规，`scripts/cross_side_check` 以编排器同款客户端直打真实平台 4 条契约路由，5/5 通过，见 §6.3）。反向（平台请求飞书建任务）仍为 mock，待真飞书凭证。
+**新主路径（v1.0.8 起）**：飞书侧走 **Aily agent + MCP `/mcp/sse`**——
+Aily 自助接入平台 10 个 `labmemory_*` 工具,事件自动化触发 10 步闭环,
+5 类卡片由 Aily 用 `lark-cli im +messages-send --as bot` 主动发送,状态轮询由 Aily interval 任务驱动。
+
+**历史路径(备用)**：两个子系统(`feishu-orchestrator` + `labmemory-platform`)已并入同一仓库、
+**两侧各自端到端跑通**(平台 17 步决策全链路 + pytest、编排器 22 个集成测试 + 11 项体检,全部绿);
+**正向跨侧联动已打通**(`scripts/cross_side_check` 5/5 通过,见 §6.3)。
+平台 webhook 反向通道(平台→飞书)代码层已落地但默认 `FEISHU_ORCHESTRATOR_MODE=mock` 不真调。
+新主路径不依赖平台 webhook 反向通道,由 Aily 主动发卡替代。
 
 ---
 
 ## 1. 架构总览
 
 ```
+新主路径(飞书侧):
 飞书会议/妙记
      │
      ▼
 ┌──────────────────────────────┐
-│  feishu-orchestrator (8080)  │   飞书侧编排与 AI 接入
-│  · 妙记/事件接入              │   负责人：韩广宁
-│  · Aily Skill 编译            │
-│  · 卡片/任务/多维表格/知识库   │
-│  · 幂等 + 重试 + 验签         │
+│  Aily 后台 (agent 模式)      │   飞书侧接入(v1.0.8 起)
+│  · 事件自动化触发              │   负责人:韩广宁
+│  · 调 MCP 10 个 labmemory_* 工具 │
+│  · lark-cli 主动发 5 类卡片   │
+│  · interval 状态轮询          │
 └──────────────┬───────────────┘
-               │  CandidatePackage (POST /v1/candidates)
-               │  CardCallback      (POST /v1/card/callback)
-               │  TaskStatus        (POST /v1/task/status)
-               │  —— 契约：openspec/specs/contracts/spec.md
+               │  MCP SSE (POST /mcp/messages)
+               │  鉴权:Bearer 或 ?token=
                ▼
 ┌──────────────────────────────┐
 │  labmemory-platform (8081)   │   自研可信决策平台
-│  FastAPI + React + SQLite    │   负责人：林俊衡
+│  FastAPI + React + SQLite    │   负责人:林俊衡
 │  · 会后复核 → 主张/版本      │
 │  · 行动前审计（六道闸门）     │
 │  · 任务执行 + 结果回流        │
 │  · 知识发布 + 实验护照        │
 │  · 决策问答 / 会前研讨包      │
 └──────────────────────────────┘
+
+备用路径(feishu-orchestrator :8080,新架构不依赖,代码/mock 演示保留):
+  飞书事件 → webhook → 编排器 → POST /api/v1/* → 平台
+  平台 → POST /webhook/platform(FeishuActionRequest)→ 编排器 → 飞书
 ```
 
-**数据流向**：妙记 → 编排器组装 `MeetingPackage` → Aily 编译为 `CandidatePackage` → 提交平台 → 平台走「复核 → 主张版本 → 行动审计 → 任务 → 结果 → 知识发布 → 护照」全链路。反向：平台决策通过后通过 `FeishuActionRequest` 请求编排器发卡片/建任务。
+**新主路径数据流向**：妙记 → Aily 事件自动化 → Aily 调 MCP 10 步 → Aily 主动发卡片
+（`lark-cli im +messages-send --as bot`）→ Aily interval 轮询 `/api/control-tower` 感知
+平台侧操作完成 → 续推后续步骤。
 
 **两个 Demo 故事**（对应 README 第 6 节）：
 1. **旧参数拦截**：80℃ v1 被 70℃ v2 替代后，新成员建 80℃ 任务时行动前审计**阻断**，支持一键修正为 70℃。
@@ -57,7 +75,8 @@
 | Python | ≥ 3.10（平台 `pyproject` 标 ≥3.12，但源码 3.11 可跑，见 §5） | 3.11.9 ✅ |
 | Node.js | ≥ 18（前端 Vite 6 / React 19） | 22.22.2 ✅ |
 | 数据库 | 默认 SQLite，启动自动建表，**需先建 `data/` 目录** | ✅ |
-| 端口 | 平台 8081、编排器 8080 | 空闲 ✅ |
+| 端口 | 平台 8081 | 空闲 ✅ |
+| ~~端口~~ | ~~编排器 8080(备用路径)~~ | n/a — 新主路径不依赖 |
 
 ### 2.2 装依赖
 
@@ -85,9 +104,9 @@ mkdir -p labmemory-platform/data                             # SQLite 落库目�
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./data/labmemory.db` | 默认 SQLite；可切 `postgresql://...` |
 | `SERVER_PORT` | `8081` | 平台端口 |
-| `PLATFORM_API_KEY` | `dev-platform-api-key-please-rotate` | 编排器调用 `/v1/*` 的鉴权 key |
+| `PLATFORM_API_KEY` | `dev-platform-api-key-please-rotate` | **备用**:编排器调用 `/v1/*` 的鉴权 key(新主路径用同一 key 调 `/mcp/sse`) |
 | `JWT_SECRET` | `dev-jwt-secret-please-rotate` | 平台用户 JWT 签名 |
-| `FEISHU_ORCHESTRATOR_MODE` | `mock` | 平台→编排器方向：`mock` 不真调飞书侧 |
+| `FEISHU_ORCHESTRATOR_MODE` | `mock` | **备用**:平台→编排器方向(新主路径不依赖) |
 
 ### 2.4 起服务 + 演示数据
 
@@ -110,16 +129,19 @@ python -m scripts.mock_feishu_push demo
 
 **演示账号**（密码均为 `123456`）：`pi` / `lead` / `executor` / `admin`
 
-### 2.5 编排器（默认 Mock 模式，无需真飞书凭证）
+### 2.5 编排器(备用路径,默认 Mock 模式,无需真飞书凭证)
+
+> **⚠️ 新主路径不依赖本服务**。本节保留作为 mock 演示 / 历史 fallback 的参考。
+> 飞书侧接入已切换为"Aily agent + MCP `/mcp/sse`",详见 [`AILY_INTEGRATION.md`](./AILY_INTEGRATION.md)。
 
 ```bash
 cd feishu-orchestrator/feishu-orchestrator
-python scripts/run_pipeline.py --demo     # 端到端 demo（妙记→Aily→提交平台→发卡片）
+python scripts/run_pipeline.py --demo     # 端到端 demo(妙记→Aily→提交平台→发卡片)
 python scripts/health_check.py            # 11 项模块体检
-python -m core.webhook_server            # 起 webhook 服务（/webhook/event, /webhook/card, /health）
+python -m core.webhook_server            # 起 webhook 服务(/webhook/event, /webhook/card, /health)
 ```
 
-> 真实飞书联动需在 `config/env.example` 配置真 `FEISHU_APP_ID/SECRET`、`AILY_API_KEY`、`PLATFORM_API_BASE` 并切 `RUN_MODE=real`。当前为占位符，故用 Mock。
+> 真实飞书联动需在 `config/env.example` 配置真 `FEISHU_APP_ID/SECRET`、`AILY_API_KEY`、`PLATFORM_API_BASE` 并切 `RUN_MODE=real`。当前为占位符,故用 Mock。
 
 ---
 
@@ -262,8 +284,10 @@ python scripts/health_check.py     # → 11 通过 / 0 失败
 
 > card/callback 对 approve 诚实返回 `action_audit=needs_confirmation`（新建任务尚未审批/资源/失败边界就绪，六道闸门如实不放行）——这正是「行动前审计」产品价值，非乐观 pass。编排器侧 `card_handler` 仅在 `status=approved AND action_audit=pass` 后建飞书任务，平台如实返回确保不会越过审计建任务。
 
-### 6.4 反向联动（平台 → 编排器）——已实现（mock 级通路）
+### 6.4 反向联动(平台 → 编排器)——已实现(备用通道)
 
+> **新主路径不依赖本节**。v1.0.8 起飞书侧走"Aily 主动发卡",平台 webhook 反向通道作为**备用通道**保留。
+>
 > **2026-08-13 更新**：反向通路已落地（OpenSpec change `add-platform-feishu-reverse-linkage`）。
 > - 编排器新增 `POST /webhook/platform`（`core/platform_action_handler.py` + `webhook_server.py`），按 `action_type` 分派到既有适配器，以 `idempotency_key` 幂等；mock 限 localhost、real 校验 `Authorization: Bearer {PLATFORM_API_KEY}`。
 > - 平台新增 `app/services/feishu_client.py`，四个触发点（复核待办→`send_card`、任务启动→`create_task`、知识发布→`publish_doc`、审计阻断→`notify`）均为非阻断 fire-and-forget；`FEISHU_ORCHESTRATOR_MODE=mock` 时不真调。
@@ -272,10 +296,10 @@ python scripts/health_check.py     # → 11 通过 / 0 失败
 
 契约 `FeishuActionRequest`（平台 → 编排器，`send_card` / `create_task` / `update_base` / `publish_doc` / `notify`）描述了平台主动请求飞书侧执行动作的方向。**历史背景**（实现前勘查结论）：此方向曾两侧均未实现，且正向流程已覆盖建任务，故曾作为后续工作保留。
 
-**为何未实现且非阻塞**：
-- **建任务场景已被正向流程覆盖**：当前架构是「卡片 approve → 编排器 `card_handler._handle_approved` 自建飞书任务 → `POST /api/v1/task/status` 回写 guid」（见 §6.3）。任务创建由编排器在收到平台 `approved+pass` 后驱动，**不需要**平台再下发 `FeishuActionRequest(create_task)`。若再实现反向建任务，会与正向重复、形成并行路径。
-- **平台侧无消费代码**：`FEISHU_ORCHESTRATOR_BASE_URL` / `FEISHU_ORCHESTRATOR_MODE=mock` 配置存在（`app/config.py:36-37`），但**没有任何客户端代码**组装并发送 `FeishuActionRequest`。
-- **编排器侧无接收端点**：`webhook_server.py` 仅实现 `/webhook/event`、`/webhook/card`；`/webhook/platform`（`DEPLOYMENT.md:139` 提及）**未编码**。
+**新主路径下为何不依赖此通道**：
+- **飞书侧由 Aily agent 接管**：Aily 通过 `lark-cli im --as bot` 主动发卡（最后一公里），避免 webhook 失败/重试/幂等管理的复杂度，且支持跨租户灵活路由（群聊/邮件降级）。
+- **建任务场景已被正向流程覆盖**：新架构下任务创建由 Aily 调 `labmemory_create_review` 后在卡片回调链路完成，或由平台内部 task 状态机触发。
+- **避免重复发卡**：若平台 webhook 与 Aily 发卡同时跑，会形成双发风险。
 
 **真正实现反向联动需要**（B 级工作量 + 凭证门控）：
 1. 编排器新增 `POST /webhook/platform` 端点，按 `FeishuActionRequest.action_type` 分派到既有 `im_card_adapter` / `task_adapter` / `docs_adapter` 等。
@@ -284,7 +308,7 @@ python scripts/health_check.py     # → 11 通过 / 0 失败
 4. 走 OpenSpec change（新增端点 + 接口 = 系统行为变更）。
 5. 真飞书侧落地仍需真 `FEISHU_APP_ID/SECRET` + `AILY_API_KEY` + `RUN_MODE=real`（mock 级可先验证通路）。
 
-**建议**：反向通路已按需求实现为并行路径（默认 mock 不真调）。注意 `send_card`/`create_task` 与正向流程存在并列重复，真实部署需二选一，避免重复发卡/建任务。
+**建议**：新主路径下反向通道默认关闭（`FEISHU_ORCHESTRATOR_MODE=mock`），仅作为外部 BI / 监控系统的可选接入点保留。
 
 ---
 
@@ -330,6 +354,6 @@ python scripts/health_check.py     # → 11 通过 / 0 失败
 
 **后续待办**
 - [x] **仓库运行时产物清理**：解除 6 个 `data/`/`logs` 文件的 git 跟踪（commit `1331e53`，`.gitignore` 已覆盖）
-- [x] **平台→编排器反向联动**：已实现（`/webhook/platform` + `feishu_client.py` + 四触发点 + `reverse_linkage_check` 7/7），详见 §6.4
+- [x] **平台→编排器反向联动**：备用通道已实现（`/webhook/platform` + `feishu_client.py` + 四触发点 + `reverse_linkage_check` 7/7），新主路径不依赖，详见 §6.4
 - [x] **前端 React UI 构建**：根因是提交的 `package-lock.json` 损坏（非宿主机 npm），已删 lockfile 重装再生 + `npm run build` 产出 dist；`GET /` 返回真实 React UI。再生 lockfile 已提交（产物 `frontend/dist/` 已 gitignore）
 - [ ] **`candidate_id` 索引列**：demo 规模 JSON 扫描够用，生产规模另起 change

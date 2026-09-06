@@ -189,9 +189,22 @@ python -m core.webhook_server             # 起 webhook（/webhook/event, /webho
 ✓ POST /api/v1/task/status     回写 feishu_task_guid
 ```
 
-### 5.2 反向（平台 → 飞书侧）：文档化为按需启动
+### 5.2 反向（平台 → 飞书侧）：新架构由 Aily 主动发卡
 
-契约 `FeishuActionRequest`（平台主动请求飞书 send_card/create_task/publish_doc 等）两侧未实现，且**正向流程已覆盖建任务**（卡片 approve → 编排器建飞书任务 → 回写 guid）。反向是另一种架构，非当前必需；真飞书侧落地仍需真凭证。详见 `INTEGRATION.md §6.4`。
+**新架构（v1.0.8 起）**：平台→飞书的"最后一公里"由 **Aily 主动完成**，
+不依赖平台 webhook 推回。
+
+- 平台内部触发 5 类事件（`decision.pending` / `preflight.blocked` /
+  `execution.deviated` / `knowledge.ready` / `reverify.due`）
+- Aily 在调完对应 MCP 工具后,按新 skill [`LabMemory 决策记忆/labmemory-decision-memory/SKILL.md`](./LabMemory%20%E5%86%B3%E7%AD%96%E8%AE%B0%E5%BF%86/labmemory-decision-memory/SKILL.md)
+  「关键环节推送卡片」章节的模板,用 `lark-cli im +messages-send --as bot` 发对应飞书交互卡片
+- 状态轮询(后半段链路感知)由 Aily 的 interval 自动化驱动,
+  调 `/api/control-tower` + `/api/meetings` 拉状态,按 diff 续推后续步骤
+
+**平台 webhook 协议(备用通道)**：平台代码层 5 类事件 webhook 实现仍在
+（`app/services/aily_webhook.py`,见 [`docs/aily-skill/webhook-payload.md`](./docs/aily-skill/webhook-payload.md)）,
+但新架构不依赖。历史背景:`FeishuActionRequest` 契约两侧未实现,正向流程已覆盖建任务,
+详见 `INTEGRATION.md §6.4`。
 
 ---
 

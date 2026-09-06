@@ -121,7 +121,8 @@ Slash 命令（Claude Code 原生）：`/openspec:proposal`、`/openspec:apply`�
 - `specs/trust-rules/`：六道闸门、主张/参数/任务状态机、冲突检测
 - `specs/action-audit/`：行动前审计五类检查、版本替代、一键修正
 - `specs/result-backflow/`：结果回流、知识状态、失败边界卡
-- `specs/contracts/`：`MeetingPackage` / `CandidatePackage` / `FeishuActionRequest` / `CardCallback` 接口契约（变更同样走 change）
+- `specs/contracts/`：`MeetingPackage` / `CandidatePackage` / `CardCallback` 接口契约（变更同样走 change）
+  - **`FeishuActionRequest` 为历史备用契约**：平台→飞书反向联动的接口描述，新主路径（Aily 主动发卡）不依赖此项；保留作为历史参考。
 
 > 两个子模块 `feishu-orchestrator` 与 `labmemory-platform` **共用仓库根 `openspec/`**，不要各自再建一套规格。
 
