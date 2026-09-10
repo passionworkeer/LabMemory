@@ -264,5 +264,5 @@ pytest tests/ -v
 - 完整 Skill 提示词：[`docs/aily-skill/skill-prompt.md`](./aily-skill/skill-prompt.md)
 - 工具清单 JSON：[`docs/aily-skill/tools-manifest.json`](./aily-skill/tools-manifest.json)
 - Webhook 推送规范：[`docs/aily-skill/webhook-payload.md`](./aily-skill/webhook-payload.md)
-- 平台契约总览：[`AILY_INTEGRATION.md`](../AILY_INTEGRATION.md)
+- 平台契约总览：[`AILY_INTEGRATION.md`](./AILY_INTEGRATION.md)
 - OpenSpec change：`openspec/changes/add-aily-mcp-server/`
