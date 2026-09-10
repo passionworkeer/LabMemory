@@ -44,6 +44,7 @@
 | 文件 | 用途 |
 |---|---|
 | [`operations/runbook.md`](operations/runbook.md) | 备份策略、健康检查、故障应急、证书续期、SSH 凭据 |
+| [`operations/mac-workspace.md`](operations/mac-workspace.md) | Mac 工作区日常操作手册（本地开发 / SSH 别名 / 部署上产 / 巡检速查） |
 
 ### 2.3 Aily 技能（新旧 skill）
 

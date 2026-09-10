@@ -9,7 +9,9 @@
 
 ### 1.1 数据库每日在线备份
 
-`/home/admin/labmemory/backup_db.sh` 由 cron 每日 03:30 触发：
+`/home/admin/labmemory/deploy/backup_db.sh` 由 cron 每日 03:30 触发（2026-09-10 修正过路径，见下）：
+
+> ⚠️ **历史事故**：2026-09-06 ~ 09-10 备份断裂 5 天——方案 B 切到 git 目录后 cron 仍指向旧路径 `/home/admin/labmemory/backup_db.sh`（仓库根），该文件已不存在。9-10 已改指 `deploy/backup_db.sh`（走 `/home/admin/labmemory` 软链，稳定），并补跑当日备份。**教训：巡检必须看 `backup.log` 内容而不只是 cron 行是否存在。**
 
 ```bash
 # 输出
@@ -34,20 +36,21 @@ labmemory_20260905_033001.db
 ```bash
 ssh admin@<SERVER_IP>
 crontab -l | grep backup_db.sh
-# 应该看到一行：30 3 * * * /home/admin/labmemory/backup_db.sh >> /home/admin/labmemory/backup.log 2>&1
+# 应该看到一行：30 3 * * * /home/admin/labmemory/deploy/backup_db.sh >> /home/admin/labmemory/backup.log 2>&1
+tail -5 /home/admin/labmemory/backup.log    # ⚠️ 必须看日志内容，确认没有 not found / 失败
 ```
 
 如果 cron 行丢了：
 
 ```bash
 ssh admin@<SERVER_IP>
-(crontab -l 2>/dev/null; echo "30 3 * * * /home/admin/labmemory/backup_db.sh >> /home/admin/labmemory/backup.log 2>&1") | crontab -
+(crontab -l 2>/dev/null; echo "30 3 * * * /home/admin/labmemory/deploy/backup_db.sh >> /home/admin/labmemory/backup.log 2>&1") | crontab -
 ```
 
 ### 1.3 手动触发备份
 ```bash
 ssh admin@<SERVER_IP>
-bash /home/admin/labmemory/backup_db.sh
+bash /home/admin/labmemory/deploy/backup_db.sh
 # 检查最新一份
 ls -la /home/admin/labmemory/backups/ | tail -1
 ```
@@ -233,7 +236,7 @@ curl -fsS http://127.0.0.1:8081/health
 
 ## 5. SSL 证书续期
 
-**当前状态**：Let's Encrypt 证书在 `/etc/letsencrypt/live/<your-domain.com>/`，**admin 不可读**（见 [`../infrastructure/servers.md`](../infrastructure/servers.md) §6.1）。
+**当前状态**：Let's Encrypt 证书在 `/etc/letsencrypt/live/<your-domain.com>/`，有效期 2026-08-20 ~ **2026-11-18**。admin 已可读（2026-09-05 已 chmod o+rX 修复，见 [`../infrastructure/servers.md`](../infrastructure/servers.md) §6.1），`certbot.timer` 自动续期在跑。
 
 ### 5.1 自动续期
 
@@ -264,12 +267,12 @@ ssh admin@<SERVER_IP>
 
 ## 6. SSH 凭据与访问控制
 
-### 6.1 当前凭据
+### 6.1 当前凭据（2026-09-10 更新）
 
-| 用户 | 密钥 | 路径 |
+| 用户 | 密钥 | 说明 |
 |---|---|---|
-| admin | 默认 ed25519 | `~/.ssh/id_ed25519` |
-| root | ❌ SSH 禁用 | 用 `admin_tool.py` 间接执行 |
+| admin | ed25519（王健俊 Mac `~/.ssh/id_ed25519` 等） | 日常运维建议走这个 |
+| root | 同一公钥也在 `/root/.ssh/authorized_keys` | **可直接 SSH**（2026-09-10 确认；此前文档误记为禁用）。root 下跑 admin 仓库的 git 需 `git config --global --add safe.directory /home/admin/labmemory.new` 或 `sudo -u admin git …` |
 
 ### 6.2 添加新成员
 

@@ -183,23 +183,24 @@ cd feishu-orchestrator/feishu-orchestrator && bash scripts/cross_side_check.sh  
 
 ## 7. 生产服务器现状
 
-**生产环境**：阿里云 Ubuntu-lrtz（<SERVER_IP>，Ubuntu 24.04，2 核 / 2 GiB / 40 GiB，域名 `<your-domain.com>`）
+**生产环境**：阿里云 Ubuntu-lrtz（<SERVER_IP>，Ubuntu 24.04，2 核 / 2 GiB / 40 GiB，域名 `<your-domain.com>`，实例 **2026-10-11 到期**）
 
-| 项 | 状态 |
+| 项 | 状态（2026-09-10 体检） |
 |---|---|
-| 平台服务 `labmemory-platform.service` | ✅ running（4 天 9 小时） |
-| Nginx 80/443 | ⚠️ **443 证书加载失败**（admin 无权读 `/etc/letsencrypt/`，详见 [`docs/infrastructure/servers.md`](./docs/infrastructure/servers.md) §6.1） |
-| 数据库每日备份 | ✅ 7 份在线备份保留 |
+| 平台服务 `labmemory-platform.service` | ✅ running（2026-09-05 16:25 起） |
+| Nginx 80/443 | ✅ 正常（证书 2026-09-05 修复，有效期至 2026-11-18，certbot 自动续期在跑） |
+| 数据库每日备份 | ✅ 2026-09-10 修复断裂 5 天的 cron 路径并补跑；保留 7 份在线备份 |
+| 服务器 .git | ✅ `/home/admin/labmemory.new`（HEAD=`5950c12`，behind origin/main 6 个 docs/skill commit，无平台代码差异） |
 | ~~飞书编排服务 `:8080`~~ | n/a — **新架构不依赖** :8080 编排器（飞书侧走 Aily agent + MCP 直连平台） |
-| 服务器 .git | ❌ 当前无 .git，部署走手工 rsync |
 
 **下一步建议（按优先级）**：
-1. 修 HTTPS 证书加载（影响 Aily 接入 + 飞书 webhook）
-2. 服务器加 .git + deploy key，改走 git pull 部署
-3. （可选）按需拉起 feishu-orchestrator（备用路径，详见 [`feishu-orchestrator/feishu-orchestrator/README.md`](./feishu-orchestrator/feishu-orchestrator/README.md)）
-4. 加自动告警（备份/磁盘/进程）
+1. 备份失败告警（P2，[`docs/operations/runbook.md`](./docs/operations/runbook.md) §7 —— 本次备份断 5 天无人察觉就是教训）
+2. 服务器 `git pull` 同步 6 个 docs/skill commit（低风险）
+3. 实例 **2026-10-11 到期**，提前续费
+4. 2026-09-12 后按 [`docs/infrastructure/servers.md`](./docs/infrastructure/servers.md) §6.5 清理 `labmemory.old` 兜底目录
+5. （可选）按需拉起 feishu-orchestrator（备用路径，详见 [`feishu-orchestrator/feishu-orchestrator/README.md`](./feishu-orchestrator/feishu-orchestrator/README.md)）
 
-完整现状 + 应急 SOP 见 [`docs/infrastructure/servers.md`](./docs/infrastructure/servers.md) 与 [`docs/operations/runbook.md`](./docs/operations/runbook.md)。
+完整现状 + 应急 SOP 见 [`docs/infrastructure/servers.md`](./docs/infrastructure/servers.md) 与 [`docs/operations/runbook.md`](./docs/operations/runbook.md)；Mac 工作区日常操作见 [`docs/operations/mac-workspace.md`](./docs/operations/mac-workspace.md)。
 
 ---
 

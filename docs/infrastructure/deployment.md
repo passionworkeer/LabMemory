@@ -46,7 +46,7 @@
 - [ ] 磁盘 / 内存有富余（>30% 磁盘可用，>500 MiB 内存可用）
 - [ ] 当前服务状态已知（看 [`servers.md`](servers.md) §4）
 - [ ] 备份策略就位（[`runbook.md`](../operations/runbook.md) §1）
-- [ ] 服务器有 `.git/`（**当前没有**，见 [`servers.md`](servers.md) §6.3）
+- [ ] 服务器有 `.git/`（✅ 已有：`/home/admin/labmemory.new`，deploy key `labmem-github`，见 [`servers.md`](servers.md) §6.3/§6.5）
 
 ### 1.3 配置准备
 - [ ] `labmemory-platform/.env`：
@@ -66,7 +66,7 @@
 - [ ] Aily 出口 IP 白名单（`203.166.190.0/24`、`203.166.191.0/24`，定期核对飞书官方文档）
 - [ ] `/mcp/sse` 端点能 curl 出 200 OK（带 `PLATFORM_API_KEY`）
 - [ ] SSL 证书就绪（Let's Encrypt 或企业 CA）
-- [ ] `/etc/letsencrypt/live/<your-domain.com>/` admin 可读（**当前有 bug**，见 [`servers.md`](servers.md) §6.1）
+- [ ] `/etc/letsencrypt/live/<your-domain.com>/` admin 可读（✅ 2026-09-05 已修复，见 [`servers.md`](servers.md) §6.1）
 
 ---
 
@@ -139,7 +139,7 @@ curl -fsS http://127.0.0.1:8080/health
 - [ ] 完整 E2E：`python -m scripts.e2e_test`（14 步全绿）
 
 ### 3.3 反向代理
-- [ ] `curl -fsS https://<your-domain.com>/health` → 200（**当前 443 证书加载失败**，需先修）
+- [ ] `curl -fsS https://<your-domain.com>/health` → 200（✅ 443 已于 2026-09-05 修复，当前正常）
 - [ ] `curl -fsS https://<your-domain.com>/mcp/manifest` → 200
 - [ ] `curl -fsS "https://<your-domain.com>/mcp/sse?token=$PLATFORM_API_KEY"` → SSE 建立
 
