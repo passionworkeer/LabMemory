@@ -97,3 +97,8 @@ demo/verify/
 
 # 上一版成片（已被 LabMemory-Demo-V3-成片.mp4 取代，保留本地供对比，不入库）
 demo/LabMemory-Demo-V2-优化版.mp4
+
+# 2026-09-17 清理 — 比赛材料二进制与压缩包不入库（本地保留于 附件/）
+附件/
+*.docx
+*.zip
