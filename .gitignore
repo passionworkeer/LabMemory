@@ -79,25 +79,21 @@ labmemory-platform/frontend/*.log
 /.tunnel-*.log
 /.tunnel-*.url
 
-# Demo 视频剪辑临时产物（抽帧、调试、PNG）
+# Demo 视频剪辑临时产物（抽帧、调试、PNG、配音中间件）
 frames/
-hd_*.png
-dense*.png
-check_*.png
-v*_verify_*.png
-v*_%02d.png
-v*v_*.png
-v*f_*.png
-v13v_*.png
-v13f_*.png
-v14_*.png
-v13_*.png
-v12_*.png
-v11_*.png
-final_*.png
-ch[ek]?_*.png
+subs/
 voice.aiff
 voice.wav
 voice_edge.*
 voiceover_tmp.*
-chk_*.png
+
+# Demo 视频：Remotion 工程运行产物
+# 画面画幅裁剪结果由 demo/scripts/prep_remotion_media.sh 从 media/source 生成，不入库
+demo/remotion/public/media/fit/
+demo/remotion/out/
+
+# Demo 视频：验证静帧与渲染日志
+demo/verify/
+
+# 上一版成片（已被 LabMemory-Demo-V3-成片.mp4 取代，保留本地供对比，不入库）
+demo/LabMemory-Demo-V2-优化版.mp4

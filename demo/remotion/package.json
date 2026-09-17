@@ -1,0 +1,37 @@
+{
+  "name": "remotion",
+  "version": "1.0.0",
+  "description": "My Remotion video",
+  "repository": {},
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@remotion/captions": "4.0.525",
+    "@remotion/cli": "4.0.525",
+    "@remotion/media": "4.0.525",
+    "@remotion/tailwind-v4": "4.0.525",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.525",
+    "tailwindcss": "4.0.0"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.525",
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "eslint": "9.19.0",
+    "prettier": "3.8.1",
+    "typescript": "5.9.3"
+  },
+  "scripts": {
+    "dev": "remotion studio",
+    "prep": "bash ../scripts/prep_remotion_media.sh",
+    "render": "remotion render src/index.ts LabMemoryDemoV2 ../LabMemory-Demo-V3-成片.mp4 --codec=h264 --crf=18 --concurrency=10 --browser-executable='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'",
+    "build": "remotion bundle",
+    "upgrade": "remotion upgrade",
+    "lint": "eslint src && tsc"
+  },
+  "sideEffects": [
+    "*.css"
+  ]
+}

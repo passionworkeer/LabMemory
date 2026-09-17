@@ -1,0 +1,16 @@
+[
+  {"text":"LabMemory 晶研智流，全流程真实演示，使用系统预置研发数据","startMs":0,"endMs":5820,"timestampMs":null,"confidence":null,"pageBreakAfter":true},
+  {"text":"请重点看三处：人只点选、失效阻断、部分支持派生","startMs":5820,"endMs":11460,"timestampMs":null,"confidence":null,"pageBreakAfter":true},
+  {"text":"飞书会议结束，妙记自动生成，待复核任务已就位","startMs":11460,"endMs":16360,"timestampMs":null,"confidence":null,"pageBreakAfter":true},
+  {"text":"研发控制塔显示四条待复核会议：80℃ 暂定参数、70℃ 复现实验","startMs":16360,"endMs":23660,"timestampMs":null,"confidence":null,"pageBreakAfter":true},
+  {"text":"催化剂 0.8eq 复验、Compound-B 50L 放大","startMs":23660,"endMs":27980,"timestampMs":null,"confidence":null,"pageBreakAfter":true},
+  {"text":"会前研讨包列出当前生效参数：温度 65℃、时间 2 小时、催化剂 1.0eq","startMs":27980,"endMs":35480,"timestampMs":null,"confidence":null,"pageBreakAfter":true},
+  {"text":"带版本、来源已校验标识","startMs":35480,"endMs":38560,"timestampMs":null,"confidence":null,"pageBreakAfter":true},
+  {"text":"妙记原话、AI 候选、人工确认三值全程留痕，置信度 92%，证据可定位","startMs":38560,"endMs":46340,"timestampMs":null,"confidence":null,"pageBreakAfter":true},
+  {"text":"AI 只出候选，人一次点选。这是第一处重点","startMs":46340,"endMs":51080,"timestampMs":null,"confidence":null,"pageBreakAfter":true},
+  {"text":"新版本生效，旧版本只读留痕，不覆盖历史记录","startMs":51080,"endMs":55640,"timestampMs":null,"confidence":null,"pageBreakAfter":true},
+  {"text":"引用失效版本建立任务时，系统立即阻断并提示当前有效版本","startMs":55640,"endMs":62520,"timestampMs":null,"confidence":null,"pageBreakAfter":true},
+  {"text":"这是第二处重点。结果判部分支持，自动派生下一轮复验任务","startMs":62520,"endMs":68420,"timestampMs":null,"confidence":null,"pageBreakAfter":true},
+  {"text":"这是第三处重点。一条实验从头到尾，五段状态贯通：复核、主张、任务、审计、结果","startMs":68420,"endMs":78100,"timestampMs":null,"confidence":null,"pageBreakAfter":true},
+  {"text":"可信问答必带出处，证据不足明确拒答，绝不编造","startMs":78100,"endMs":82600,"timestampMs":null,"confidence":null,"pageBreakAfter":true}
+]

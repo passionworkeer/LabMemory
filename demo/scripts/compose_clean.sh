@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
-cd /Users/wangjianjun/me/LabMemory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEMO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$DEMO_DIR"
 mkdir -p clips_done
 rm -f clips_done/*.mp4
 

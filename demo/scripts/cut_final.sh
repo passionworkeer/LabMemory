@@ -1,9 +1,11 @@
 #!/bin/bash
 set -e
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEMO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SRC1="/Users/wangjianjun/Desktop/录屏2026-09-16 21.51.14.mov"
 SRC2="/Users/wangjianjun/Desktop/录屏2026-09-16 21.56.31.mov"
-TITLE="/Users/wangjianjun/me/LabMemory/assets/title_card.png"
-OUT="/Users/wangjianjun/me/LabMemory/clips"
+TITLE="$DEMO_DIR/assets/title_card.png"
+OUT="$DEMO_DIR/clips"
 
 mkdir -p "$OUT"
 
