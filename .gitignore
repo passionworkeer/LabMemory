@@ -78,3 +78,18 @@ labmemory-platform/frontend/*.log
 # 内网穿透隧道运行时产物（域名随重连变化）
 /.tunnel-*.log
 /.tunnel-*.url
+
+# Demo 视频剪辑临时产物（抽帧、调试、PNG）
+frames/
+hd_*.png
+dense*.png
+check_*.png
+v1*_verify_*.png
+v1*_%02d.png
+v1*.png
+final_*.png
+ch[ek]?_*.png
+voice.aiff
+voice.wav
+voice_edge.*
+voiceover_tmp.*
