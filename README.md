@@ -1,5 +1,7 @@
 # LabMemory 晶研智流
 
+> **项目状态（2026-09-21）：公开归档。** 比赛阶段已结束，本项目作为可信实验决策与记忆系统的工程案例保留，停止主动维护。演示数据为模拟数据，不代表生产应用效果；欢迎 fork 后继续研究与开发。
+
 <div align="center">
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -252,4 +254,4 @@ LabMemory 原生支持 **Anthropic Model Context Protocol (MCP)**。
 ## 📄 许可证
 
 本项目采用 [MIT License](LICENSE) 开源协议。
-欢迎任何形式的 Issue、Pull Request 与学术/工业界交流！
+本仓库归档后不再接收 Issue 或 Pull Request，欢迎在 fork 中继续研究与开发。
