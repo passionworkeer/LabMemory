@@ -1,9 +1,6 @@
-# 内部智能体记忆/缓存（不入库）
-.workbuddy/
-.claude/settings.json
-
-# 操作系统/编辑器临时文件
+# 操作系统与编辑器
 .DS_Store
+._*
 Thumbs.db
 *.swp
 *.swo
@@ -11,30 +8,29 @@ Thumbs.db
 .vscode/
 .idea/
 
-# 本地临时脚本
-extract_*.py
-
-# Python 字节码与缓存
+# Python 缓存与产物
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
 .eggs/
+*.egg-info/
+build/
+dist/
 
-# Python 虚拟环境
+# Python 虚拟环境与工具锁
 .venv/
 venv/
 env/
-
-# Python 工具缓存
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .coverage
 htmlcov/
+uv.lock
 
-# Node.js / 前端
+# Node.js 与前端构建产物
 node_modules/
 *.tsbuildinfo
 .vite/
@@ -42,63 +38,58 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+labmemory-platform/frontend/dist/
+labmemory-platform/frontend/node_modules/
 
-# 打包产物
-*.egg-info/
-build/
-dist/
-
-# 凭据与本地配置（严禁入库：飞书 App Secret / Aily Key / 平台 Token）
+# 凭据与本地环境配置（严禁入库）
 .env
 .env.*
 !.env.example
 config/.env
 feishu-orchestrator/feishu-orchestrator/config/.env
 
-# 运行时产物（幂等记录、状态机快照、集成日志均为本地运行生成）
+# 运行时数据与日志
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.log
+*.jsonl
+labmemory-platform/data/*.db*
+labmemory-platform/frontend/*.log
 feishu-orchestrator/feishu-orchestrator/data/idempotency/
 feishu-orchestrator/feishu-orchestrator/data/state/
 feishu-orchestrator/feishu-orchestrator/data/integration_logs/
 feishu-orchestrator/feishu-orchestrator/data/minutes/
 feishu-orchestrator/feishu-orchestrator/logs/
-*.jsonl
 
-# labmemory-platform：运行时 SQLite 数据库与前端本地日志
-labmemory-platform/data/*.db
-labmemory-platform/data/*.db-journal
-labmemory-platform/data/*.db-wal
-labmemory-platform/data/*.db-shm
-labmemory-platform/frontend/*.log
-
-# 本地 AI 工具产物（不入仓库，保留本地可用）
+# 内网穿透与辅助工具产物
+/.tunnel-*.log
+/.tunnel-*.url
+.workbuddy/
 .gstack/
 .agents/
 /AGENTS.md
 
-# 内网穿透隧道运行时产物（域名随重连变化）
-/.tunnel-*.log
-/.tunnel-*.url
-
-# Demo 视频剪辑临时产物（抽帧、调试、PNG、配音中间件）
+# 媒体与视频编辑临时产物
 frames/
 subs/
 voice.aiff
 voice.wav
 voice_edge.*
 voiceover_tmp.*
-
-# Demo 视频：Remotion 工程运行产物
-# 画面画幅裁剪结果由 demo/scripts/prep_remotion_media.sh 从 media/source 生成，不入库
 demo/remotion/public/media/fit/
 demo/remotion/out/
-
-# Demo 视频：验证静帧与渲染日志
+demo/remotion/node_modules/
 demo/verify/
-
-# 上一版成片（已被 LabMemory-Demo-V3-成片.mp4 取代，保留本地供对比，不入库）
+demo/clips/
+demo/clips_done/
 demo/LabMemory-Demo-V2-优化版.mp4
+demo/LabMemory-Demo-FINAL-有配音.mp4
+demo/LabMemory-Demo-原视频剪辑.mp4
 
-# 2026-09-17 清理 — 比赛材料二进制与压缩包不入库（本地保留于 附件/）
+# 大文件附件与文档二进制（本地保留，不入库）
 附件/
 *.docx
 *.zip
+*.pptx

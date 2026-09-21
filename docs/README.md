@@ -10,7 +10,7 @@
 |---|---|
 | 评委 / 业务方 | [`README.md`](../README.md) → [`参赛方案文档.md`](../参赛方案文档.md) |
 | 新加入的开发者 | [`README.md`](../README.md) → [`PROJECT_GUIDE.md`](../PROJECT_GUIDE.md) → [`docs/infrastructure/deployment.md`](infrastructure/deployment.md) |
-| 运维 / 部署 | [`INTEGRATION.md`](../INTEGRATION.md) → [`docs/infrastructure/servers.md`](infrastructure/servers.md) → [`docs/operations/runbook.md`](operations/runbook.md) |
+| 运维 / 部署 | [`INTEGRATION.md`](../INTEGRATION.md) → [`docs/infrastructure/servers.example.md`](infrastructure/servers.example.md) → [`docs/operations/runbook.md`](operations/runbook.md) |
 | 飞书 / Aily 集成方 | [`AILY_INTEGRATION.md`](../AILY_INTEGRATION.md) → [`AILY_MCP.md`](../AILY_MCP.md) → [`api-meetings-integration.md`](api-meetings-integration.md) |
 | 安全 / 合规审核 | [`AUDIT.md`](../AUDIT.md) |
 | 规格作者 / 治理 | [`../CLAUDE.md`](../CLAUDE.md) → [`../openspec/specs/`](../openspec/specs/) |
@@ -37,14 +37,14 @@
 ### 2.1 `infrastructure/` — 服务器与部署
 | 文件 | 用途 |
 |---|---|
-| [`infrastructure/servers.md`](infrastructure/servers.md) | **生产服务器档案**（地址、配置、服务现状、最近一次体检） |
+| [`infrastructure/servers.example.md`](infrastructure/servers.example.md) | **生产服务器规划参考**（规格、拓扑、Nginx/Systemd 样例） |
 | [`infrastructure/deployment.md`](infrastructure/deployment.md) | 部署前 / 中 / 后 checklist，平台/编排器启动顺序 |
 
-### 2.2 `operations/` — 运维 runbook
+### 2.2 `operations/` — 本地开发与运维
 | 文件 | 用途 |
 |---|---|
-| [`operations/runbook.md`](operations/runbook.md) | 备份策略、健康检查、故障应急、证书续期、SSH 凭据 |
-| [`operations/mac-workspace.md`](operations/mac-workspace.md) | Mac 工作区日常操作手册（本地开发 / SSH 别名 / 部署上产 / 巡检速查） |
+| [`operations/runbook.md`](operations/runbook.md) | 备份策略、健康检查、故障应急、证书维护 |
+| [`operations/local-development.md`](operations/local-development.md) | 本地开发指南（环境准备、前后端启动、测试执行） |
 
 ### 2.3 Aily 技能（新旧 skill）
 

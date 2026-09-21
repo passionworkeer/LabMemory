@@ -11,5 +11,5 @@ sqlite-vec>=0.1.6
 pytest>=8.0
 pytest-asyncio>=0.23
 # Aily MCP Server（同进程 SSE 暴露 10 个工具，详见 openspec/changes/add-aily-mcp-server）
-mcp>=1.0,<2.0
+mcp>=1.25.0,<1.30.0
 sse-starlette>=2.0
