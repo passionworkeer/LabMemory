@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<meta name="theme-color" content="#4480FB">
+<meta name="description" content="LabMemory 晶研智流 · 溯研 LabTrace：把会议里的科学判断，变成可信、可执行、可追溯、会演化的实验事实。2026 AI 先锋未来人才大赛案例。">
+<title>LabMemory 晶研智流 · 溯研 LabTrace</title>
+<style>
+:root{
+  --brand:#4480FB; --brand-deep:#336DF4; --violet:#7D83FF; --violet-deep:#5C3FFB;
+  --cyan:#48C8FF; --pink:#ED6BED; --orange:#FF811A; --red:#F95B51; --teal:#45E3BB;
+  --paper:#FAFAFA; --paper-2:#F1F7FC; --surface:#FFFFFF;
+  --ink:#101010; --ink-deep:#00246B; --muted:#6F6F6F; --faint:#A6A6A6;
+  --line:#E7E6E6; --line-2:#DDEBFE;
+  --font-cn:"方正兰亭黑 Pro GB18030","Noto Sans SC","PingFang SC","HarmonyOS Sans SC","Microsoft YaHei",sans-serif;
+  --font-en:"TikTok Sans Display","Noto Sans SC","PingFang SC",sans-serif;
+  --fs-base:15px;
+  --radius:14px; --radius-sm:10px; --maxw:480px;
+  --ease:cubic-bezier(.16,1,.3,1);
+  --dur-base:340ms; --dur-slow:680ms;
+  --grad-brand:linear-gradient(90deg,#7D83FF 0%,#336DF4 100%);
+  --grad-data:linear-gradient(90deg,#DEE3FF 0%,#DEEAFF 13%,#EDF3FB 36%,#FAF2F6 54%,#FCEFF3 62%,#FEEBF6 97%);
+}
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-cn);
+  font-size:var(--fs-base);line-height:1.75;-webkit-font-smoothing:antialiased;overflow-x:hidden;touch-action:manipulation}
+h1,h2,h3,p,ul,ol,figure,blockquote,table{margin:0;padding:0}
+ul,ol{list-style:none}
+svg{display:block}
+.mono{font-family:var(--font-en);font-variant-numeric:tabular-nums}
+
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:
+    radial-gradient(40rem 24rem at 10% -5%,rgba(125,131,255,.18),transparent 60%),
+    radial-gradient(32rem 22rem at 95% 0%,rgba(237,107,237,.12),transparent 55%),
+    radial-gradient(30rem 20rem at 50% 110%,rgba(72,200,255,.12),transparent 60%);}
+.sheet{max-width:var(--maxw);margin:0 auto;padding:0 20px;position:relative;z-index:1}
+
+/* 顶部品牌栏 */
+.brandbar{position:sticky;top:0;z-index:30;background:#fff;border-bottom:1px solid var(--line);padding-top:env(safe-area-inset-top)}
+.brandbar__in{max-width:var(--maxw);margin:0 auto;padding:10px 20px;display:flex;align-items:center;justify-content:center}
+.brandbar__logo{height:26px;width:auto;display:block}
+.brandbar__prog{position:absolute;left:0;right:0;bottom:-1px;height:2px;overflow:hidden}
+.brandbar__prog i{display:block;height:100%;background:var(--grad-brand);transform:scaleX(0);transform-origin:left}
+
+/* 首屏 */
+.hero{position:relative;overflow:hidden;padding:44px 0 40px}
+.hero > .sheet{position:relative;z-index:2}
+.hero__brand{margin:0 auto 24px;text-align:center}
+.hero__brand img{display:block;width:100%;max-width:300px;height:auto;margin:0 auto}
+.kicker{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line-2);border-radius:999px;
+  padding:5px 12px;font-size:12px;font-weight:500;color:var(--brand-deep);background:#fff}
+.eyebrow{margin-top:22px;font-size:11px;letter-spacing:.3em;color:var(--muted);text-transform:uppercase;font-family:var(--font-en)}
+.hero h1{font-weight:900;font-size:46px;line-height:1.05;letter-spacing:.005em;margin:12px 0 0;
+  background:var(--grad-brand);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
+.hero__rule{height:3px;width:64px;background:var(--grad-brand);margin:20px 0;border-radius:2px}
+.hero__sub{font-weight:700;font-size:19px;line-height:1.5;color:var(--ink-deep)}
+.hero__by{margin-top:10px;font-size:13px;color:var(--muted)}
+
+/* 章节 */
+.sec{padding:44px 0 0}
+.sec__h{display:flex;align-items:baseline;gap:12px;margin-bottom:20px}
+.sec__no{flex:none;font-family:var(--font-en);font-size:12px;font-weight:700;letter-spacing:.1em;color:var(--brand);
+  background:rgba(125,131,255,.1);padding:3px 8px;border-radius:6px}
+.sec__t{flex:none;font-weight:900;font-size:24px;line-height:1.3;color:var(--ink-deep)}
+.sec__rule{flex:1;height:1px;background:var(--line)}
+@media (max-width:359px){.sec__t{font-size:21px}}
+.lead{font-size:15px;line-height:1.85;color:var(--ink)}
+.lead b{color:var(--brand-deep)}
+
+.shot{margin-top:16px;background:#fff;border-radius:var(--radius);overflow:hidden;
+  box-shadow:0 4px 20px -12px rgba(68,128,251,.18)}
+.shot img{display:block;width:100%;height:auto}
+.shot figcaption{padding:10px 14px;font-size:12px;color:var(--muted);background:var(--paper-2)}
+.note{font-size:12px;color:var(--muted);line-height:1.7;margin-top:12px}
+
+.card{position:relative;background:var(--surface);border-radius:var(--radius);padding:20px;
+  box-shadow:0 4px 20px -12px rgba(68,128,251,.18);overflow:hidden}
+.card::before{content:"";position:absolute;right:-40px;top:-40px;width:160px;height:160px;
+  background:radial-gradient(circle,rgba(125,131,255,.18),transparent 70%);pointer-events:none}
+
+/* 三图小卡（知识散落三处） */
+.trio{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:16px}
+.trio__i{background:#fff;border-radius:var(--radius-sm);overflow:hidden;box-shadow:0 4px 20px -12px rgba(68,128,251,.15)}
+.trio__i img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover}
+.trio__b{padding:8px 10px 10px}
+.trio__b b{display:block;font-size:12px;font-weight:700;color:var(--ink-deep)}
+.trio__b span{display:block;font-size:11px;line-height:1.55;color:var(--muted);margin-top:2px}
+
+/* 数据条 */
+.stats{display:grid;grid-template-columns:1fr;gap:12px;margin-top:20px;
+  background:var(--grad-data);border-radius:var(--radius);padding:20px 16px}
+.stat{padding:8px 0}
+.stat__n{display:flex;align-items:baseline;gap:5px;font-family:var(--font-en);font-weight:900;
+  font-size:38px;line-height:1.05;color:var(--brand-deep)}
+.stat__n small{font-size:14px;font-weight:600;color:var(--ink)}
+.stat p{font-size:12px;line-height:1.6;color:var(--muted);margin-top:4px}
+
+/* 行卡片 */
+.rows{margin-top:12px;display:flex;flex-direction:column;gap:12px}
+.row{display:grid;grid-template-columns:48px 1fr;gap:14px;align-items:start;padding:16px;background:#fff;border-radius:var(--radius)}
+.row__i{font-family:var(--font-en);font-weight:900;font-size:28px;line-height:1;
+  background:var(--grad-brand);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;padding-top:2px}
+.row__b b{display:block;font-size:16px;font-weight:700;color:var(--ink-deep)}
+.row__b span{display:block;font-size:14px;line-height:1.75;color:var(--ink);margin-top:4px}
+
+/* 模块卡片（双列网格） */
+.caps{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:16px}
+.cap{padding:16px 14px;background:#fff;border-radius:var(--radius);box-shadow:0 4px 20px -12px rgba(68,128,251,.15)}
+.cap__k{display:block;margin-bottom:8px;font-family:var(--font-en);font-size:10px;font-weight:700;letter-spacing:.16em;color:var(--brand)}
+.cap__t{font-weight:900;font-size:16px;line-height:1.3;color:var(--ink-deep)}
+.cap__s{display:block;font-size:11px;font-weight:500;color:var(--muted);margin-top:2px;font-family:var(--font-en)}
+.cap p{font-size:12px;line-height:1.7;color:var(--ink);margin-top:8px}
+@media (max-width:359px){.caps{grid-template-columns:1fr}}
+
+.band{position:relative;overflow:hidden;margin-top:24px;padding:24px 20px;border-radius:var(--radius);
+  background:linear-gradient(135deg,#5C3FFB 0%,#336DF4 100%);color:#fff}
+.band p{font-weight:700;font-size:18px;line-height:1.6;position:relative}
+
+/* 因果链 */
+.flow{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;font-size:13px;line-height:1.6}
+.flow span{display:inline-block;padding:6px 12px;background:var(--paper-2);border-radius:8px;color:var(--ink-deep);font-weight:500}
+.flow i{font-style:normal;color:var(--brand);font-weight:700;align-self:center}
+
+/* 两列对比 */
+.duo{display:grid;grid-template-columns:1fr;gap:12px;margin-top:16px}
+.duo__i{padding:16px;background:#fff;border-radius:var(--radius)}
+.duo__i.good{border-left:3px solid var(--teal)}
+.duo__i.bad{border-left:3px solid var(--red)}
+.duo__k{font-weight:900;font-size:16px;color:var(--ink-deep)}
+.duo__v{font-family:var(--font-en);font-size:13px;font-weight:700;color:var(--brand-deep);margin-top:6px}
+.duo__i.bad .duo__v{color:var(--red)}
+.duo__i p{font-size:12px;line-height:1.7;color:var(--muted);margin-top:6px}
+
+/* 表格 */
+.tbl-wrap{margin-top:20px;background:#fff;border-radius:var(--radius);padding:16px;overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th,td{padding:9px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+th{font-family:var(--font-en);font-size:10px;font-weight:700;letter-spacing:.12em;white-space:nowrap;color:var(--brand-deep);background:var(--paper-2)}
+td:first-child{font-weight:700;color:var(--ink-deep);white-space:nowrap}
+td.ok{color:var(--brand-deep);font-weight:500;background:rgba(68,128,251,.05)}
+caption{caption-side:top;text-align:left;font-size:12px;color:var(--muted);padding-bottom:8px}
+
+/* 时间轴 */
+.st{margin-top:16px}
+.st__item{position:relative;display:grid;grid-template-columns:40px 1fr;gap:14px;padding-bottom:24px}
+.st__item::before{content:"";position:absolute;left:19px;top:40px;bottom:0;width:2px;background:var(--line-2);border-radius:1px}
+.st__item:last-child{padding-bottom:0}
+.st__item:last-child::before{display:none}
+.st__mk{position:relative;z-index:1;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  border:1.5px solid var(--line-2);background:#fff;font-family:var(--font-en);font-size:13px;font-weight:700;color:var(--muted)}
+.st__b b{display:block;font-size:16px;font-weight:700;color:var(--ink-deep)}
+.st__b span{display:block;font-size:14px;line-height:1.75;color:var(--ink);margin-top:4px}
+
+/* 团队成员卡 */
+.members{display:grid;grid-template-columns:1fr;gap:12px;margin-top:16px}
+.member{padding:20px;background:#fff;border-radius:var(--radius);box-shadow:0 4px 20px -12px rgba(68,128,251,.15)}
+.member__head{display:flex;align-items:center;gap:14px}
+.avatar{flex:none;width:64px;height:64px;border-radius:50%;border:1.5px dashed var(--line-2);background:var(--paper-2);
+  display:flex;align-items:center;justify-content:center;font-weight:900;font-size:24px;color:var(--brand)}
+.member__name{font-weight:900;font-size:17px;color:var(--ink-deep)}
+.member__role{font-size:12px;font-weight:500;color:var(--brand-deep);margin-top:2px}
+.member p{font-size:13px;line-height:1.75;color:var(--ink);margin-top:12px}
+.member .tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.member .tags span{font-size:11px;padding:3px 8px;border-radius:6px;background:var(--paper-2);color:var(--brand-deep)}
+.member .tags a{font-size:11px;padding:3px 8px;border-radius:6px;background:var(--paper-2);color:var(--brand-deep);text-decoration:none}
+
+/* 页脚 */
+.footer{margin-top:64px;padding:32px 0 calc(40px + env(safe-area-inset-bottom));border-top:1px solid var(--line);text-align:center}
+.footer__b{font-weight:900;font-size:16px;letter-spacing:.03em;color:var(--ink-deep)}
+.footer__m{font-size:12px;color:var(--muted);margin-top:6px}
+.footer__q{margin:20px auto 0;max-width:24em;font-weight:700;font-size:16px;line-height:1.7;color:var(--ink)}
+.footer__q em{font-style:normal;color:var(--brand)}
+.case-logo{margin-top:36px;padding-top:28px;border-top:1px solid var(--line)}
+.case-logo img{display:block;width:100%;max-width:340px;height:auto;margin:0 auto}
+
+/* 动效 */
+[data-reveal]{opacity:0;transform:translateY(20px)}
+[data-reveal].is-in{opacity:1;transform:none;transition:opacity var(--dur-base) var(--ease),transform var(--dur-base) var(--ease)}
+@media (prefers-reduced-motion:reduce){[data-reveal]{opacity:1!important;transform:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<nav class="brandbar"><div class="brandbar__in">
+  <img class="brandbar__logo" src="%%BRAND%%" alt="IDEA｜飞书｜豆包工作">
+</div><div class="brandbar__prog" aria-hidden="true"><i id="prog"></i></div></nav>
+
+<header class="hero"><div class="sheet">
+  <div class="hero__brand">
+    <img src="%%HERO%%" alt="2026 AI 先锋未来人才大赛">
+  </div>
+  <div class="kicker">
+    <span class="chip">溯研 LabTrace</span>
+    <span class="chip">面向晶泰科技 · 研发知识闭环</span>
+    <span class="chip">妙搭可运行全栈</span>
+  </div>
+  <p class="eyebrow mono">LabMemory</p>
+  <h1>晶研智流</h1>
+  <div class="hero__rule"></div>
+  <p class="hero__sub">把会议里的科学判断，变成<br>可信、可执行、可追溯、会演化的实验事实</p>
+  <p class="hero__by">队长 王健俊 · 成员 林俊衡 韩广宁</p>
+</div></header>
+
+<main class="sheet">
+
+  <!-- 01 开场故事 -->
+  <section class="sec"><h2 class="sec__h"><span class="sec__no mono">01</span><span class="sec__t">开场：一场组会之后</span><span class="sec__rule"></span></h2>
+    <p class="lead" data-reveal>想象晶泰研发组的一个周一：组会讨论一个温度用 70 还是 80 度，妙记录了音、群里刷了几十条消息——<b>一周后，新同事照着旧参数做了一批实验，却不知道结论早已被更新。</b></p>
+    <div class="trio" data-reveal>
+      <div class="trio__i"><img src="%%IMG:ill_recording%%" alt="妙记录音"><div class="trio__b"><b>妙记 · 录音</b><span>整场录下，回听成本高</span></div></div>
+      <div class="trio__i"><img src="%%IMG:ill_chat%%" alt="群聊消息"><div class="trio__b"><b>群聊消息</b><span>几十条消息快速沉没</span></div></div>
+      <div class="trio__i"><img src="%%IMG:ill_memory%%" alt="个人记忆"><div class="trio__b"><b>个人记忆</b><span>人走，知识跟着走</span></div></div>
+    </div>
+    <p class="lead" style="margin-top:20px" data-reveal>一次组会之后，结论同时散落在三个地方，却没有人能保证它们被正确地用起来。三个代价，每次会后都要重复付：</p>
+    <div class="duo" data-reveal>
+      <div class="duo__i bad"><div class="duo__k">用不起来</div><div class="duo__v">每次会后重复付，且因人而异</div><p>回听录音、翻历史版本、核对证据、拆解任务，时间耗在还原「上次到底定了什么」。</p></div>
+      <div class="duo__i bad"><div class="duo__k">更新不同步</div><div class="duo__v">最贵的损失</div><p>旧结论被新实验推翻却没人同步，「可以试试」被当成确定参数执行——带着失效知识做下一批实验。</p></div>
+      <div class="duo__i bad"><div class="duo__k">查不到来源</div><div class="duo__v">同一个坑反复踩</div><p>结论说不清当时依据哪句话，审计与复盘只能翻聊天记录、找录音，证据链断裂。</p></div>
+    </div>
+    <p class="note" data-reveal>麦肯锡研究显示，知识工作者每天约有 1.8 小时耗在查找与汇总已有信息上（口径为泛指信息查找汇总，非专指会后整理，仅作背景）。</p>
+    <blockquote class="band" data-reveal><p>三个代价指向同一个缺口：科学判断没有被当作「知识」来治理——不校验证据、不管理版本、不回流结果。</p></blockquote>
+  </section>
+
+  <!-- 02 机制 -->
+  <section class="sec"><h2 class="sec__h"><span class="sec__no mono">02</span><span class="sec__t">人工会漏，系统必然拦</span><span class="sec__rule"></span></h2>
+    <p class="lead" data-reveal>我们最硬的壁垒不是接了大模型，而是<b>机制级的确定性</b>——对已进入系统、已结构化的对象，规则必然触发，不是模型概率。</p>
+    <div class="stats" data-reveal>
+      <div class="stat"><div class="stat__n">100<small>%</small></div><p>失效版本引用 · 试探语当定论 · 结论无来源<br>必然被拦、必然留痕、可现场复现</p></div>
+      <div class="stat"><div class="stat__n">7<small>类</small></div><p>语义栅栏识别的试探词<br>「可以试试 / 可能 / 暂定 / 或许…」</p></div>
+      <div class="stat"><div class="stat__n">5<small>态</small></div><p>结果回流强制单选<br>支持 / 部分支持 / 推翻 / 替代 / 证据不足</p></div>
+    </div>
+    <div class="tbl-wrap" data-reveal>
+      <table>
+        <caption>六个环节逐条对照 · 结论可现场复现</caption>
+        <thead><tr><th>环节</th><th>纯人工</th><th>LabMemory</th></tr></thead>
+        <tbody>
+          <tr><td>整理结论</td><td>逐句回听、手动归纳，耗时长且会漏</td><td class="ok">秒级自动编译为候选，人只点选复核</td></tr>
+          <tr><td>用错旧参数</td><td>靠记忆和群通知，无法保证不漏</td><td class="ok">版本门对非当前版本必然阻断，并给出当前有效版</td></tr>
+          <tr><td>试探语当定论</td><td>靠个人理解，无统一标准</td><td class="ok">语义栅栏对 7 类试探词必然判「待验证」</td></tr>
+          <tr><td>结论无来源</td><td>事后翻记录，常找不到依据</td><td class="ok">证据门强制挂秒级妙记证据，无证据不生效</td></tr>
+          <tr><td>更新旧结论</td><td>手动多处改，容易改一漏一片</td><td class="ok">版本链自动 v1→v2，旧版自动标「已替代」</td></tr>
+          <tr><td>结果回流</td><td>常省略，或含糊记成「差不多成功」</td><td class="ok">强制五态判定，证据失效只许「证据不足 / 推翻」</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="note" data-reveal>「100%」的边界务必分清：机制 100% 指规则必然触发、可现场复现；AI 抽取结果从不声称 100% 正确——一律先叫候选，必须人复核。</p>
+  </section>
+
+  <!-- 03 方案 -->
+  <section class="sec"><h2 class="sec__h"><span class="sec__no mono">03</span><span class="sec__t">方案：八模块一条闭环</span><span class="sec__rule"></span></h2>
+    <p class="lead" data-reveal>LabMemory 不做又一个纪要工具，也不重做 ELN / LIMS，只补最前端一段：<b>会议 → 可信知识 → 正确参数</b>。八个真实界面构成一条闭环，全链路长在飞书、零切换。</p>
+    <div class="flow" data-reveal>
+      <span>妙记记录</span><i>→</i><span>豆包工作抽取</span><i>→</i><span>妙搭承载业务</span><i>→</i><span>飞书任务落地</span><i>→</i><span>结果回流更新知识</span><i>↺</i>
+    </div>
+    <div class="caps" data-reveal>
+      <div class="cap"><span class="cap__k">01</span><h3 class="cap__t">会前简报<span class="cap__s">PreMeetingBrief</span></h3><p>已有主张、版本链与未闭环失败边界，会前一屏汇总。</p></div>
+      <div class="cap"><span class="cap__k">02</span><h3 class="cap__t">决策编译<span class="cap__s">DecisionCompiler</span></h3><p>妙记编译为参数变更 / 风险 / 行动项 / 待解问题四类候选。</p></div>
+      <div class="cap"><span class="cap__k">03</span><h3 class="cap__t">会后复核<span class="cap__s">PostMeetingReview</span></h3><p>人在候选上增删改，六道闸门判定能否发布，全程留痕。</p></div>
+      <div class="cap"><span class="cap__k">04</span><h3 class="cap__t">控制塔<span class="cap__s">ControlTower</span></h3><p>一个实验下所有主张、版本链与状态的全局视图。</p></div>
+      <div class="cap"><span class="cap__k">05</span><h3 class="cap__t">行动前审计<span class="cap__s">ActionAudit</span></h3><p>建任务瞬间五项检查、三态结论、新旧版本一键对比。</p></div>
+      <div class="cap"><span class="cap__k">06</span><h3 class="cap__t">结果回流<span class="cap__s">ResultBackflow</span></h3><p>五态判定 → 失败边界 → 模型反馈 → 派生复验任务。</p></div>
+      <div class="cap"><span class="cap__k">07</span><h3 class="cap__t">实验护照<span class="cap__s">ExperimentPassport</span></h3><p>「会议—主张—版本—任务—结果—审计」完整时间线。</p></div>
+      <div class="cap"><span class="cap__k">08</span><h3 class="cap__t">可信问答 / 审计<span class="cap__s">TrustedQA · Audit</span></h3><p>带引用作答，无依据明说无法回答；操作全进审计流。</p></div>
+    </div>
+    <blockquote class="band" data-reveal><p>AI 只出候选，人和规则决定什么能够生效。</p></blockquote>
+  </section>
+
+  <!-- 04 双层信任 -->
+  <section class="sec"><h2 class="sec__h"><span class="sec__no mono">04</span><span class="sec__t">一道管入口，一道管出口</span><span class="sec__rule"></span></h2>
+    <p class="lead" data-reveal>双层信任决定一条结论的一生：第一层决定它能否发布为「当前有效」知识，第二层决定它能否被拿去执行。</p>
+    <div class="duo" data-reveal>
+      <div class="duo__i good"><div class="duo__k">第一层 · 候选入口</div><div class="duo__v">六道可信闸门</div><p>硬门 4 道（对象 / 参数 / 范围 / 责任）任一不过 → 待补充；软门 2 道（证据门 + 状态门·语义栅栏）任一不过 → 待验证；六道全过才生效。另有作用域感知的数值冲突检测——正常替代不误报、跨范围不误报。</p></div>
+      <div class="duo__i good"><div class="duo__k">第二层 · 执行出口</div><div class="duo__v">行动前审计 · 五项检查</div><p>建任务瞬间检查版本与单位、证据与范围、审批、资源、失败边界，给出通过 / 待确认 / 阻断三态。引用非当前旧版即阻断，并给出当前有效版与替代证据。</p></div>
+    </div>
+    <div class="flow" data-reveal>
+      <span>会议候选</span><i>→</i><span>六道闸门</span><i>→</i><span>当前有效知识</span><i>→</i><span>建任务</span><i>→</i><span>行动前审计</span><i>→</i><span>放心执行</span>
+    </div>
+    <blockquote class="band" data-reveal><p>六道闸门保证「写进知识库的是可信的」，行动前审计保证「拿去做实验时用的是对的版本」。</p></blockquote>
+  </section>
+
+  <!-- 05 真实界面 -->
+  <section class="sec"><h2 class="sec__h"><span class="sec__no mono">05</span><span class="sec__t">实证：五个真实界面</span><span class="sec__rule"></span></h2>
+    <p class="lead" data-reveal>以下截图<b>录制自真实运行的妙搭应用</b>（系统预置研发数据），从会前到问答一条闭环走完八个模块：</p>
+    <figure class="shot" data-reveal><img src="%%IMG:feishu%%" alt="飞书会议结束，待复核任务自动就位"><figcaption>妙记接入 ｜ 会议结束，待复核任务自动就位</figcaption></figure>
+    <figure class="shot" data-reveal><img src="%%IMG:tower%%" alt="研发控制塔，四条待复核会议一屏掌握"><figcaption>④ 控制塔 ｜ 四条待复核会议，一屏掌握</figcaption></figure>
+    <figure class="shot" data-reveal><img src="%%IMG:briefing%%" alt="会前研讨包，参数版本与来源同时可见"><figcaption>① 会前简报 ｜ 参数、版本与来源同时可见</figcaption></figure>
+    <figure class="shot" data-reveal><img src="%%IMG:confirm%%" alt="人工确认，AI 给候选人做最终决定"><figcaption>③ 会后复核 ｜ AI 给候选，人做最终决定</figcaption></figure>
+    <figure class="shot" data-reveal><img src="%%IMG:qa%%" alt="可信问答，答案与证据出处同屏呈现"><figcaption>⑧ 可信问答 ｜ 答案与证据出处同屏呈现</figcaption></figure>
+    <p class="note" data-reveal>答辩现场另有 83 秒全流程演示视频（1920×1080，只做剪辑、不做加速）。其中失效版本阻断瞬间、部分支持徽章、五段状态贯通三项在录屏中无对应画面，视频中以流程图标注「流程说明」表达，不用主题近似的录屏冒充功能实录。</p>
+  </section>
+
+  <!-- 06 回看一 -->
+  <section class="sec"><h2 class="sec__h"><span class="sec__no mono">06</span><span class="sec__t">回看一：知识被安全地更新</span><span class="sec__rule"></span></h2>
+    <p class="lead" data-reveal>Compound-A 合成优化实验的温度参数：会上有人暂定 80℃，复现实验验证 70℃ 收率更高。新结论<b>不是覆盖旧记录，而是接棒生成新版本</b>：</p>
+    <div class="flow" data-reveal>
+      <span>候选 80℃ 会上试探</span><i>→</i><span>状态门拦下</span><i>→</i><span>复现验证 70℃</span><i>→</i><span>复核生效 v1</span><i>→</i><span>旧版只读留痕</span>
+    </div>
+    <div class="duo" data-reveal>
+      <div class="duo__i bad"><div class="duo__k">候选 · 80℃</div><div class="duo__v">待验证 pending</div><p>会上暂定试探，状态门拦下，不可被引用。证据：妙记原话 · 陈工 · 5s。</p></div>
+      <div class="duo__i good"><div class="duo__k">v1 · 70℃</div><div class="duo__v">当前有效 current</div><p>复现确认收率更高，六道闸门全过加人复核后生效，唯一可被引用。证据：妙记原话 · 陈博士 · 10s。</p></div>
+    </div>
+    <p class="lead" style="margin-top:16px" data-reveal>生效之后，<b>任何人都无法再误用旧参数</b>——若引用失效版本建立任务，系统在建任务瞬间就拦住并提示当前有效版本。这一步是规则必然触发，可现场复现。</p>
+    <p class="note" data-reveal>候选与版本永久只读留痕 · 任务与结果都绑定具体主张版本 · 非当前参数一律不可被引用。</p>
+  </section>
+
+  <!-- 07 回看二 -->
+  <section class="sec"><h2 class="sec__h"><span class="sec__no mono">07</span><span class="sec__t">回看二：科研不是非黑即白</span><span class="sec__rule"></span></h2>
+    <p class="lead" data-reveal>系统会判「部分支持」。一条假设从试探到自我进化，四步走完：</p>
+    <div class="st" data-reveal>
+      <div class="st__item"><div class="st__mk">1</div><div class="st__b"><b>试探 · 评审会原话</b><span>「暂定尝试 80℃ 看看反应极限」——语义栅栏识别试探语「暂定」，只能进入「待验证」，不能直接成为当前有效参数。</span></div></div>
+      <div class="st__item"><div class="st__mk">2</div><div class="st__b"><b>实验结果 · 对照会前锁定的验收标准</b><span>验收标准会前锁定：转化率 ≥75%、副产物 ≤6%。升温线实测转化率 60%，未达验收线。</span></div></div>
+      <div class="st__item"><div class="st__mk">3</div><div class="st__b"><b>五态知识模型 · 强制选择</b><span>支持 / 部分支持 / 推翻 / 替代 / 证据不足五选一，不允许「含糊地算成功」。本例判「部分支持」。</span></div></div>
+      <div class="st__item"><div class="st__mk">4</div><div class="st__b"><b>失败边界 + 自动派生复验</b><span>自动生成失败边界（现象、触发条件、判定依据、下一步）与模型反馈，并派生复验任务：催化剂 0.8 eq、保持 70℃。</span></div></div>
+    </div>
+    <blockquote class="band" data-reveal><p>证据失效只许落「证据不足 / 推翻」——规则上杜绝粉饰。</p></blockquote>
+    <p class="note" data-reveal>失败边界、部分成立的假设都成为组织知识，驱动下一轮实验而不是沉没。</p>
+  </section>
+
+  <!-- 08 数据 -->
+  <section class="sec"><h2 class="sec__h"><span class="sec__no mono">08</span><span class="sec__t">数据：三层都扛得住追问</span><span class="sec__rule"></span></h2>
+    <div class="stats" data-reveal>
+      <div class="stat"><div class="stat__n">-56<small>%</small></div><p>结构化整理环节耗时下降<br>自测 · 有 SOP 可复现</p></div>
+      <div class="stat"><div class="stat__n">3.8<small>倍</small></div><p>微软受控实验：同一场 35 分钟会议总结<br>人工 42:34 → AI 11:13（耗时 -74%）</p></div>
+      <div class="stat"><div class="stat__n">576<small>工时/年</small></div><p>20 人课题组年净省 ≈ 5.2–6.8 万元<br>晶泰 500 研发口径 → 8,000 工时 ≈ 73–95 万元</p></div>
+    </div>
+    <div class="rows" data-reveal>
+      <div class="row"><div class="row__i">机</div><div class="row__b"><b>第一层 · 机制</b><span>失效版本引用、试探语当定论、结论无来源——全部必然被拦、必然留痕、可现场复现。对已进入系统、已结构化的对象成立。</span></div></div>
+      <div class="row"><div class="row__i">外</div><div class="row__b"><b>第二层 · 外部对照（带主语）</b><span>微软受控实验（n=60）：要点覆盖 12/15 vs 11/15，准确性无显著差异。这是受控对照实验而非厂商宣传，它证方向；我们只报自测的 56%。</span></div></div>
+      <div class="row"><div class="row__i">算</div><div class="row__b"><b>第三层 · 自测 + 算账（假设全透明）</b><span>时薪按国家统计局科研技术服务业工资折算约 91 元/时（含社保综合用工约 118 元/时）。频次与单次工时为场景假设，可当场重算。</span></div></div>
+    </div>
+    <p class="note" data-reveal>内部评测：抽取准确 90%、拦截与可追溯 100%、证据关联 87.5%（目标 90）、冲突召回 80%（目标 85）。以上测算均不含一次参数用错在高通量下的返工、物料与机时损失。</p>
+  </section>
+
+  <!-- 09 为什么是晶泰 -->
+  <section class="sec"><h2 class="sec__h"><span class="sec__no mono">09</span><span class="sec__t">为什么是晶泰</span><span class="sec__rule"></span></h2>
+    <p class="lead" data-reveal>自动化放大了通量，也放大了一次错参数的批量代价——<b>每周上万次合成里，一个被替代却仍被执行的参数，会被机器人复制成成百上千次浪费。</b></p>
+    <div class="stats" data-reveal>
+      <div class="stat"><div class="stat__n">500<small>+</small></div><p>研发人员<br>研发占比 &gt;70%，含 200+ 算法工程师</p></div>
+      <div class="stat"><div class="stat__n">300<small>+</small></div><p>机器人工站<br>湿实验室面积超 1 万平方米</p></div>
+      <div class="stat"><div class="stat__n">20<small>万+/月</small></div><p>月产反应数据<br>每周上万次合成</p></div>
+      <div class="stat"><div class="stat__n">200<small>+</small></div><p>模型 · 约 80% 常见反应<br>营收 1.74 亿 → 2.66 亿 → 8.03 亿（2023→2025，+201%）</p></div>
+    </div>
+    <div class="duo" data-reveal>
+      <div class="duo__i good"><div class="duo__k">晶泰 Genius Agents</div><div class="duo__v">调度机器人执行 DMTA</div><p>重构设计—制造—测试—分析循环，把专家隐性知识固化进系统，负责把实验执行下去。</p></div>
+      <div class="duo__i good"><div class="duo__k">LabMemory</div><div class="duo__v">会议 → 可信知识 → 正确参数</div><p>占最前端一环，把隐性经验固化成带证据、版本与责任的标准件。</p></div>
+    </div>
+    <p class="note" data-reveal>它们保证执行得动，我们保证执行前用的是对的版本。晶泰数据来自公开资料（02228.HK），用于说明高通量场景，非我们的成绩。</p>
+  </section>
+
+  <!-- 10 壁垒与路线 -->
+  <section class="sec"><h2 class="sec__h"><span class="sec__no mono">10</span><span class="sec__t">壁垒与三步路线</span><span class="sec__rule"></span></h2>
+    <p class="lead" data-reveal>壁垒不是接了大模型，而是<b>把科研知识治理规则做成确定性系统</b>——已在妙搭真实运行，不是 PPT 上的概念。</p>
+    <div class="rows" data-reveal>
+      <div class="row"><div class="row__i">01</div><div class="row__b"><b>双层信任机制</b><span>六道闸门管入口，行动前审计管出口。</span></div></div>
+      <div class="row"><div class="row__i">02</div><div class="row__b"><b>五态知识模型</b><span>支持到证据不足，拒绝含糊地算成功。</span></div></div>
+      <div class="row"><div class="row__i">03</div><div class="row__b"><b>版本链</b><span>v1 到 v2 接棒，旧版本只读留痕。</span></div></div>
+      <div class="row"><div class="row__i">04</div><div class="row__b"><b>失败边界与反馈</b><span>沉淀模型偏差，驱动知识自我进化。</span></div></div>
+    </div>
+    <div class="card" data-reveal style="margin-top:16px">
+      <span class="cap__k">ENGINEERING</span>
+      <h3 class="cap__t">工程底座 · 可现场验证</h3>
+      <p>Postgres 17 张表 · 约 40 个内外部接口 · 三值留痕（妙记原话含说话人与秒级偏移 / AI 候选 / 人工修改）· 飞书任务双向同步 · SSO + RBAC 五角色 · 全量审计事件 · 端到端测试。是可运行 full_stack，不是静态原型。</p>
+    </div>
+    <div class="st" data-reveal>
+      <div class="st__item"><div class="st__mk">S1</div><div class="st__b"><b>单课题组 · 跑通会后知识闭环</b><span>妙记 → 候选 → 复核 → 飞书任务，4–6 周拿到第一轮前后对比。</span></div></div>
+      <div class="st__item"><div class="st__mk">S2</div><div class="st__b"><b>对接系统 · 结果自动回流</b><span>标准接口对接实验设备与 ELN / LIMS，无需推倒重来。</span></div></div>
+      <div class="st__item"><div class="st__mk">S3</div><div class="st__b"><b>知识底座 · 组织级可信复用</b><span>成为研发组织的可信知识底座，跨课题组复用。</span></div></div>
+    </div>
+  </section>
+
+  <!-- 11 团队 -->
+  <section class="sec"><h2 class="sec__h"><span class="sec__no mono">11</span><span class="sec__t">团队：溯研 LabTrace</span><span class="sec__rule"></span></h2>
+    <p class="lead" data-reveal>两个人做工程、一个人定产品：飞书侧编排、可信决策平台与产品定义，拼成一条闭环。</p>
+    <div class="members">
+      <div class="member" data-reveal>
+        <div class="member__head">
+          <div class="avatar">王</div>
+          <div><div class="member__name">王健俊</div><div class="member__role">队长 · 产品与可信记忆</div></div>
+        </div>
+        <p>深圳技术大学数据科学与大数据技术本科在读。现在快手做多模态 Agent 方向的实习，也参与腾讯的项目；长期关注 Agent 的评测与可信知识——LabMemory 就是这套想法在科研场景的落地。</p>
+        <div class="tags"><a href="https://wangjianjun.xyz">个人网站：wangjianjun.xyz</a><span>17820577270（微信同号）</span></div>
+      </div>
+      <div class="member" data-reveal>
+        <div class="member__head">
+          <div class="avatar">韩</div>
+          <div><div class="member__name">韩广宁</div><div class="member__role">飞书侧编排与 AI 接入</div></div>
+        </div>
+        <p>Aily MCP Server 全栈实现（10 个工具 + 5 个 Webhook + Bearer 鉴权）、10 步可信决策流程的 Skill 提示词设计、妙记 / 卡片 / 任务 / 多维表格 / 知识库联动，以及原子幂等、分类重试、乱序容忍等可靠性工程；38 项集成测试全绿。</p>
+      </div>
+      <div class="member" data-reveal>
+        <div class="member__head">
+          <div class="avatar">林</div>
+          <div><div class="member__name">林俊衡</div><div class="member__role">自研平台与可信决策系统</div></div>
+        </div>
+        <p>可信决策内核（六道闸门、参数级版本、五态知识、语义栅栏、三值留痕）与混合检索 RAG（BM25 + 向量 + 关系扩展 + 重排）、流式 SSE；FastAPI + React 19 + Vite 6 全栈。三轮对抗审查修复 40+ 缺陷，归档 16+ 个 OpenSpec change。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 收束 -->
+  <section class="sec"><h2 class="sec__h"><span class="sec__no mono">12</span><span class="sec__t">四个数字</span><span class="sec__rule"></span></h2>
+    <div class="stats" data-reveal>
+      <div class="stat"><div class="stat__n">-56<small>%</small></div><p>结构化整理环节耗时（自测）</p></div>
+      <div class="stat"><div class="stat__n">100<small>%</small></div><p>失效版本拦截（机制必然 · 可现场复现）</p></div>
+      <div class="stat"><div class="stat__n">8<small>模块</small></div><p>一条闭环 · 妙搭可运行全栈</p></div>
+      <div class="stat"><div class="stat__n">83<small>秒</small></div><p>全流程真实演示 · 只做剪辑不加速</p></div>
+    </div>
+    <p class="lead" style="margin-top:20px" data-reveal>让每一条实验结论，<b>都不丢失、不被误用</b>。</p>
+  </section>
+
+  <footer class="footer">
+    <div class="footer__b">LabMemory 晶研智流 · 溯研 LabTrace</div>
+    <div class="footer__m">王健俊 · 林俊衡 · 韩广宁 ｜ 2026 AI 先锋未来人才大赛</div>
+    <p class="footer__q">让每一条实验结论，<br>都不丢失、<em>不被误用</em>。</p>
+    <div class="case-logo"><img src="%%FOOTER%%" alt="2026 AI 先锋未来人才大赛"></div>
+  </footer>
+</main>
+
+<script>
+(function(){
+  var io;
+  if('IntersectionObserver' in window){
+    io=new IntersectionObserver(function(es){
+      es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('is-in');io.unobserve(e.target);}});
+    },{rootMargin:'0px 0px -8% 0px',threshold:0.12});
+    document.querySelectorAll('[data-reveal]').forEach(function(el){io.observe(el);});
+  }else{
+    document.querySelectorAll('[data-reveal]').forEach(function(el){el.classList.add('is-in');});
+  }
+  var prog=document.getElementById('prog');
+  function up(){var d=document.documentElement;var m=d.scrollHeight-window.innerHeight;var y=window.pageYOffset||d.scrollTop;
+    if(prog)prog.style.transform='scaleX('+(m>0?Math.min(1,y/m):0)+')';}
+  window.addEventListener('scroll',up,{passive:true});up();
+})();
+</script>
+</body>
+</html>

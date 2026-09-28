@@ -72,7 +72,7 @@ feishu-orchestrator/feishu-orchestrator/logs/
 /AGENTS.md
 
 # 媒体与视频编辑临时产物
-frames/
+/frames/
 subs/
 voice.aiff
 voice.wav
@@ -93,3 +93,9 @@ demo/LabMemory-Demo-原视频剪辑.mp4
 *.docx
 *.zip
 *.pptx
+
+# 案例集提交材料（赛方 Skill 解压件与赛事通知，不入库）
+/source/
+/source 2/
+/1.md
+scripts/case-h5/pptx/

@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>overflow check</title></head>
+<body>
+<iframe id="f" src="file:///Users/wangjianjun/me/LabMemory/LabMemory晶研智流-竖屏版.html" style="width:390px;height:844px;border:0"></iframe>
+<pre id="out">pending</pre>
+<script>
+document.getElementById('f').addEventListener('load', function () {
+  var d = document.getElementById('f').contentDocument;
+  var de = d.documentElement;
+  var over = [];
+  d.querySelectorAll('body *').forEach(function (el) {
+    var r = el.getBoundingClientRect();
+    if (r.width > 0 && (r.right > 391 || r.left < -1)) {
+      over.push(el.tagName + '.' + (el.className && el.className.toString().split(' ')[0]) + ' right=' + Math.round(r.right));
+    }
+  });
+  document.getElementById('out').textContent = JSON.stringify({
+    scrollWidth: de.scrollWidth,
+    innerWidth: window.innerWidth,
+    bodyScrollW: d.body.scrollWidth,
+    overflowCount: over.length,
+    overflowSample: over.slice(0, 10)
+  }, null, 1);
+});
+</script>
+</body>
+</html>
